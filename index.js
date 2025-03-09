@@ -3,38 +3,60 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const cron = require("node-cron");
+const helmet = require("helmet");
+const compression = require("compression");
+const rateLimit = require("express-rate-limit");
+const bodyParser = require("body-parser");
 const User = require("./models/User");
-const bodyParser = require('body-parser');
 
 // 🔥 Importar rutas y middleware
 const authRoutes = require("./routes/authRoutes");
 const authMiddleware = require("./middleware/authMiddleware");
-const trabajadoresRoutes = require('./routes/trabajadoresRoutes');
+const trabajadoresRoutes = require("./routes/trabajadoresRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 const MONGO_URI = process.env.MONGO_URI;
 const JWT_SECRET = process.env.JWT_SECRET;
 
+// 🌟 Seguridad: Helmet para proteger contra vulnerabilidades comunes
+app.use(helmet());
+
+// 🌟 Comprimir respuestas para mejorar el rendimiento
+app.use(compression());
+
+// 🌟 Limitar peticiones para prevenir ataques de fuerza bruta y DDoS
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000,  // 15 minutos
+    max: 100,  // Máximo 100 peticiones por IP cada 15 minutos
+    message: "⚠️ Demasiadas peticiones. Intenta de nuevo más tarde."
+});
+app.use(limiter);
+
 // 🌍 Middlewares
 app.use(express.json());
+app.use(bodyParser.json());
 
+// 🌟 Configurar CORS con opciones específicas para producción
 const corsOptions = {
-    origin: process.env.FRONTEND_URL || "http://localhost:4200",  // 🌟 Permitir solo peticiones desde el frontend
-    optionsSuccessStatus: 200  // Evitar errores en algunos navegadores viejitos
+    origin: process.env.FRONTEND_URL || "http://localhost:4200",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+    optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
 
-app.use(bodyParser.json());
+// 🔒 Ocultar el header X-Powered-By para mayor seguridad
+app.disable("x-powered-by");
+
+// 📌 Conexión a MongoDB Atlas con opciones para producción
+mongoose.connect(MONGO_URI)
+.then(() => console.log("✅ Conectado a MongoDB Atlas"))
+.catch(err => console.error("❌ Error conectando a MongoDB:", err));
 
 // 📌 Rutas
 app.use("/api/auth", authRoutes);
-app.use('/api/trabajadores', trabajadoresRoutes);
-
-// 📌 Conexión a MongoDB Atlas
-mongoose.connect(MONGO_URI)
-    .then(() => console.log("✅ Conectado a MongoDB Atlas"))
-    .catch(err => console.error("❌ Error conectando a MongoDB:", err));
+app.use("/api/trabajadores", trabajadoresRoutes);
 
 // 🛠 Ruta de prueba para verificar que el servidor corre bien
 app.get("/", (req, res) => {
@@ -77,6 +99,12 @@ cron.schedule("0 0 * * *", async () => {
     } catch (error) {
         console.error("❌ Error en el cron job de eliminación de usuarios:", error);
     }
+});
+
+// 🛑 Manejo de errores global
+app.use((err, req, res, next) => {
+    console.error("❌ Error no manejado:", err);
+    res.status(500).json({ message: "Error interno del servidor" });
 });
 
 // 🚀 Iniciar el servidor
