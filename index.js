@@ -26,6 +26,8 @@ app.use(helmet());
 app.use(compression());
 
 // 🌟 Limitar peticiones para prevenir ataques de fuerza bruta y DDoS
+app.set("trust proxy", 1);  // 🌟 Confía en el proxy de Render
+
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,  // 15 minutos
     max: 100,  // Máximo 100 peticiones por IP cada 15 minutos
