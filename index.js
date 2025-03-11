@@ -40,13 +40,23 @@ app.use(express.json());
 app.use(bodyParser.json());
 
 // 🌟 Configurar CORS con opciones específicas para producción
+const allowedOrigins = [
+    "http://localhost:4200", 
+    "https://aluasistencias-backend.onrender.com"
+];
+
 app.use(cors({
-    origin: "*", // 🌍 Permitir temporalmente todos los orígenes
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error("CORS bloqueado"));
+        }
+    },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true
 }));
-
 
 // 🔒 Ocultar el header X-Powered-By para mayor seguridad
 app.disable("x-powered-by");
