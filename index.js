@@ -40,13 +40,13 @@ app.use(express.json());
 app.use(bodyParser.json());
 
 // 🌟 Configurar CORS con opciones específicas para producción
-const corsOptions = {
-    origin: process.env.FRONTEND_URL || "http://localhost:4200",
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true,
-    optionsSuccessStatus: 200
-};
-app.use(cors(corsOptions));
+app.use(cors({
+    origin: "*", // 🌍 Permitir temporalmente todos los orígenes
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true
+}));
+
 
 // 🔒 Ocultar el header X-Powered-By para mayor seguridad
 app.disable("x-powered-by");
