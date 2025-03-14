@@ -42,7 +42,7 @@ app.use(bodyParser.json());
 // 🌟 Configurar CORS con opciones específicas para producción
 const allowedOrigins = [
     "http://localhost:4200", 
-    "https://aluasistencias-backend.onrender.com"
+    "https://alu-asistencias.onrender.com"
 ];
 
 app.use(cors({
