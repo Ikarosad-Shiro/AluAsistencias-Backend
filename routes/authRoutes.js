@@ -230,30 +230,55 @@ router.put("/activar/:id", authMiddleware, async (req, res) => {
 });
 
 // 📌 Actualizar usuario (con verificación de contraseña)
+// 📌 Actualizar usuario (con validaciones de rol)
 router.put("/usuarios/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const { contraseña, ...updateData } = req.body;
+    const { contraseña, rol, ...updateData } = req.body;
 
-    // Verificar que la contraseña esté presente
     if (!contraseña) {
       return res.status(400).json({ message: "La contraseña es requerida." });
     }
 
-    // Verificar la contraseña
-    const usuario = await User.findById(req.user.id);
-    if (!usuario) {
+    // Obtener usuario autenticado
+    const usuarioAutenticado = await User.findById(req.user.id);
+    if (!usuarioAutenticado) {
       return res.status(404).json({ message: "Usuario no encontrado." });
     }
 
-    const esValida = await bcrypt.compare(contraseña, usuario.password);
+    // Verificar contraseña antes de hacer cambios
+    const esValida = await bcrypt.compare(contraseña, usuarioAutenticado.password);
     if (!esValida) {
       return res.status(401).json({ message: "Contraseña incorrecta." });
     }
 
-    // Actualizar el usuario
+    // Obtener el usuario objetivo
+    const usuarioObjetivo = await User.findById(id);
+    if (!usuarioObjetivo) {
+      return res.status(404).json({ message: "Usuario a actualizar no encontrado." });
+    }
+
+    // 📌 REGLAS DE CAMBIO DE ROL
+    if (rol) {
+      if (usuarioObjetivo.rol === "Dios") {
+        return res.status(403).json({ message: "No puedes cambiar el rol de 'Dios'." });
+      }
+
+      if (usuarioAutenticado.rol === "Administrador" && usuarioObjetivo.rol === "Administrador") {
+        return res.status(403).json({ message: "No puedes cambiar el rol de otro administrador." });
+      }
+
+      if (usuarioAutenticado.rol === "Administrador" && usuarioObjetivo.rol === "Revisor" && rol === "Administrador") {
+        // ✅ Un administrador puede subir un revisor a admin
+      } else if (usuarioAutenticado.rol === "Administrador") {
+        return res.status(403).json({ message: "No puedes cambiar el rol de este usuario." });
+      }
+    }
+
+    // Aplicar cambios
     await User.findByIdAndUpdate(id, updateData);
     res.status(200).json({ message: "Usuario actualizado correctamente." });
+
   } catch (error) {
     console.error("❌ Error al actualizar usuario:", error);
     res.status(500).json({ message: "Error al actualizar usuario." });
