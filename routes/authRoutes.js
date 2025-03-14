@@ -15,6 +15,21 @@ if (!JWT_SECRET) {
   process.exit(1);
 }
 
+// 📌 Obtener perfil del usuario autenticado
+router.get("/perfil", authMiddleware, async (req, res) => {
+  try {
+    const usuario = await User.findById(req.user.id, "-password"); // 🔥 Excluimos la contraseña
+    if (!usuario) {
+      return res.status(404).json({ message: "Usuario no encontrado." });
+    }
+    res.status(200).json(usuario);
+  } catch (error) {
+    console.error("❌ Error al obtener perfil:", error);
+    res.status(500).json({ message: "Error al obtener el perfil." });
+  }
+});
+
+
 // 📌 Obtener todos los usuarios
 router.get("/usuarios", async (req, res) => {
   try {
