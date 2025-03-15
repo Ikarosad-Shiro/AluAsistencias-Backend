@@ -241,32 +241,54 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
       return res.status(400).json({ message: "La contraseña es requerida." });
     }
 
+    // Obtener usuario autenticado
     const usuarioAutenticado = await User.findById(req.user.id);
     if (!usuarioAutenticado) {
-      return res.status(404).json({ message: "Usuario no encontrado." });
+      return res.status(404).json({ message: "Usuario autenticado no encontrado." });
     }
 
+    // Verificar contraseña
     const esValida = await bcrypt.compare(contraseña, usuarioAutenticado.password);
     if (!esValida) {
       return res.status(401).json({ message: "Contraseña incorrecta." });
     }
 
-    // 📌 Verificar si realmente se actualiza
+    // Obtener usuario a actualizar
     const usuarioAActualizar = await User.findById(id);
+    if (!usuarioAActualizar) {
+      return res.status(404).json({ message: "Usuario no encontrado." });
+    }
+
+    // 🔥 Restricción: Un administrador NO puede degradar a otro administrador
+    if (usuarioAutenticado.rol === "Administrador" && usuarioAActualizar.rol === "Administrador" && rol === "Revisor") {
+      return res.status(403).json({ message: "No puedes degradar a otro administrador." });
+    }
+
+    // 🔥 Restricción: Un administrador NO puede cambiar el rol de otro administrador
+    if (usuarioAutenticado.rol === "Administrador" && usuarioAActualizar.rol === "Administrador" && rol !== "Administrador") {
+      return res.status(403).json({ message: "No puedes cambiar el rol de otro administrador." });
+    }
+
+    // 🔥 Restricción: Ninguna cuenta puede asignar el rol de "Dios"
+    if (rol === "Dios" && usuarioAutenticado.rol !== "Dios") {
+      return res.status(403).json({ message: "No tienes permiso para asignar el rol de Dios." });
+    }
+
+    // 📌 Verificar si realmente se actualiza
     console.log("🔹 Usuario antes de actualizar:", usuarioAActualizar);
 
-    await User.findByIdAndUpdate(id, { rol });
+    // ✅ Actualizar el rol en la base de datos
+    usuarioAActualizar.rol = rol;
+    await usuarioAActualizar.save();
 
-    const usuarioActualizado = await User.findById(id);
-    console.log("✅ Usuario después de actualizar:", usuarioActualizado);
+    console.log("✅ Usuario después de actualizar:", usuarioAActualizar);
 
-    res.status(200).json({ message: "Usuario actualizado correctamente." });
+    res.status(200).json({ message: `Rol actualizado a ${rol} correctamente.`, usuario: usuarioAActualizar });
   } catch (error) {
     console.error("❌ Error al actualizar usuario:", error);
     res.status(500).json({ message: "Error al actualizar usuario." });
   }
 });
-
 
 // 📌 Eliminar usuario (con verificación de contraseña)
 router.delete("/usuarios/:id", authMiddleware, async (req, res) => {
