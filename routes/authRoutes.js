@@ -233,7 +233,7 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
     const { id } = req.params;
     const { contraseña, rol } = req.body;
 
-    console.log("🔹 Petición recibida para cambiar rol:", { id, rol, contraseña });
+    console.log("🔹 Petición recibida para cambiar rol:", { id, nuevoRol: rol, contraseña });
 
     if (!contraseña) {
       return res.status(400).json({ message: "La contraseña es requerida." });
@@ -254,28 +254,30 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
       return res.status(404).json({ message: "Usuario a actualizar no encontrado." });
     }
 
-    // 🔥 Verificar que el rol no sea vacío o nulo
+    console.log("🔹 Antes de actualizar, usuario tenía rol:", usuarioAActualizar.rol);
+
+    // 🚨 Asegurar que el rol es válido y que realmente estamos cambiándolo
     if (!rol || (rol !== "Administrador" && rol !== "Revisor")) {
       return res.status(400).json({ message: "Rol no válido." });
     }
 
-    // 📌 Evitar que un Administrador cambie el rol de otro Administrador
     if (usuarioAutenticado.rol === "Administrador" && usuarioAActualizar.rol === "Administrador") {
       return res.status(403).json({ message: "No puedes cambiar el rol de otro Administrador." });
     }
 
-    // 📌 Evitar que un usuario pueda darse permisos de Dios
     if (rol === "Dios") {
       return res.status(403).json({ message: "No puedes asignar el rol de Dios." });
     }
 
-    console.log("🔹 Antes de actualizar, usuario tenía rol:", usuarioAActualizar.rol);
+    // 🚨 Evitar que se actualice si el rol ya es el mismo
+    if (usuarioAActualizar.rol === rol) {
+      return res.status(400).json({ message: `El usuario ya tiene el rol ${rol}.` });
+    }
 
-    // 📌 CORRECCIÓN: Usamos `findOneAndUpdate` en vez de `save()`
     const usuarioActualizado = await User.findOneAndUpdate(
       { _id: id },
       { $set: { rol } },
-      { new: true } // 🔥 Esto devuelve el usuario actualizado
+      { new: true }
     );
 
     console.log("✅ Después de actualizar, usuario ahora tiene rol:", usuarioActualizado.rol);
