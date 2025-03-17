@@ -231,9 +231,9 @@ router.put("/activar/:id", authMiddleware, async (req, res) => {
 router.put("/usuarios/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const { contraseña, rol } = req.body;
+    const { contraseña, rol: nuevoRol } = req.body;
 
-    console.log("🔹 Petición recibida para cambiar rol:", { id, nuevoRol: rol, contraseña });
+    console.log("🔹 Petición recibida para cambiar rol:", { id, nuevoRol, contraseña });
 
     if (!contraseña) {
       return res.status(400).json({ message: "La contraseña es requerida." });
@@ -257,11 +257,11 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
     console.log("🔹 Antes de actualizar, usuario tenía rol:", usuarioAActualizar.rol);
 
     // 🚨 Si el usuario ya tiene el rol deseado, solo responde sin error.
-    if (usuarioAActualizar.rol === rol) {
-      return res.status(200).json({ message: `ℹ️ El usuario ya tiene el rol ${rol}.` });
+    if (usuarioAActualizar.rol === nuevoRol) {
+      return res.status(200).json({ message: `ℹ️ El usuario ya tiene el rol ${nuevoRol}.` });
     }
 
-    if (!rol || (rol !== "Administrador" && rol !== "Revisor")) {
+    if (!nuevoRol || (nuevoRol !== "Administrador" && nuevoRol !== "Revisor")) {
       return res.status(400).json({ message: "Rol no válido." });
     }
 
@@ -269,14 +269,14 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
       return res.status(403).json({ message: "No puedes cambiar el rol de otro Administrador." });
     }
 
-    if (rol === "Dios") {
+    if (nuevoRol === "Dios") {
       return res.status(403).json({ message: "No puedes asignar el rol de Dios." });
     }
 
     // **🚀 ACTUALIZAR EL ROL EN MONGO**
     const usuarioActualizado = await User.findOneAndUpdate(
       { _id: id },
-      { $set: { rol } },
+      { $set: { rol: nuevoRol } },
       { new: true }
     );
 
