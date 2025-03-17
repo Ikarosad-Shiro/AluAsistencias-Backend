@@ -231,28 +231,24 @@ router.put("/activar/:id", authMiddleware, async (req, res) => {
 router.put("/usuarios/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    let { contraseña, rol: nuevoRol } = req.body;
+    const { contraseña, rol: nuevoRol } = req.body;
 
-    console.log("🔹 Petición recibida:", { id, nuevoRol, contraseña });
+    console.log("🔹 Petición recibida para cambiar rol:", { id, nuevoRol, contraseña });
 
-    // ✅ Validar que la contraseña esté presente
     if (!contraseña) {
       return res.status(400).json({ message: "La contraseña es requerida." });
     }
 
-    // ✅ Buscar el usuario autenticado
     const usuarioAutenticado = await User.findById(req.user.id);
     if (!usuarioAutenticado) {
-      return res.status(404).json({ message: "Usuario autenticado no encontrado." });
+      return res.status(404).json({ message: "Usuario no encontrado." });
     }
 
-    // ✅ Verificar la contraseña del usuario autenticado
     const esValida = await bcrypt.compare(contraseña, usuarioAutenticado.password);
     if (!esValida) {
       return res.status(401).json({ message: "Contraseña incorrecta." });
     }
 
-    // ✅ Buscar el usuario a actualizar
     const usuarioAActualizar = await User.findById(id);
     if (!usuarioAActualizar) {
       return res.status(404).json({ message: "Usuario a actualizar no encontrado." });
@@ -260,47 +256,39 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
 
     console.log("🔹 Antes de actualizar, usuario tenía rol:", usuarioAActualizar.rol);
 
-    // ✅ Normalizar el rol (Quitar espacios y formatear correctamente)
-    if (nuevoRol) {
-      nuevoRol = nuevoRol.trim();
-      nuevoRol = nuevoRol.charAt(0).toUpperCase() + nuevoRol.slice(1).toLowerCase();
-    }
-
-    console.log("🔹 Rol normalizado:", nuevoRol);
-
-    // ✅ Verificar que el rol sea válido
-    const rolesValidos = ["Dios", "Administrador", "Revisor"];
-    if (!rolesValidos.includes(nuevoRol)) {
-      return res.status(400).json({ message: "Rol no válido." });
-    }
-
-    // 📌 **Evitar que un usuario pueda asignar el rol de "Dios"**
-    if (nuevoRol === "Dios") {
-      return res.status(403).json({ message: "No puedes asignar el rol de Dios." });
-    }
-
-    // 📌 **Evitar que un Administrador cambie el rol de otro Administrador**
-    if (usuarioAutenticado.rol === "Administrador" && usuarioAActualizar.rol === "Administrador") {
-      return res.status(403).json({ message: "No puedes cambiar el rol de otro Administrador." });
-    }
-
-    // 📌 **Si el usuario ya tiene el mismo rol, no actualizar**
+    // 🚨 Si el usuario ya tiene el rol deseado, solo responde sin error.
     if (usuarioAActualizar.rol === nuevoRol) {
       return res.status(200).json({ message: `ℹ️ El usuario ya tiene el rol ${nuevoRol}.` });
     }
 
-    // ✅ **Actualizar el rol en la base de datos**
-    usuarioAActualizar.rol = nuevoRol;
-    await usuarioAActualizar.save();
+    if (!["Administrador", "Revisor"].includes(nuevoRol)) {
+      return res.status(400).json({ message: "Rol no válido." });
+    }
 
-    console.log("✅ Después de actualizar, usuario ahora tiene rol:", usuarioAActualizar.rol);
+    if (usuarioAutenticado.rol === "Administrador" && usuarioAActualizar.rol === "Administrador") {
+      return res.status(403).json({ message: "No puedes cambiar el rol de otro Administrador." });
+    }
 
-    res.status(200).json({ message: "Rol actualizado correctamente.", usuario: usuarioAActualizar });
+    if (nuevoRol === "Dios") {
+      return res.status(403).json({ message: "No puedes asignar el rol de Dios." });
+    }
+
+    // **🚀 ACTUALIZAR EL ROL EN MONGO**
+    const usuarioActualizado = await User.findOneAndUpdate(
+      { _id: id },
+      { $set: { rol: nuevoRol } },
+      { new: true }
+    );
+
+    console.log("✅ Después de actualizar, usuario ahora tiene rol:", usuarioActualizado.rol);
+
+    res.status(200).json({ message: "Rol actualizado correctamente.", usuario: usuarioActualizado });
   } catch (error) {
     console.error("❌ Error al actualizar usuario:", error);
     res.status(500).json({ message: "Error al actualizar usuario." });
   }
 });
+
 
 
 // 📌 Eliminar usuario (con verificación de contraseña)
