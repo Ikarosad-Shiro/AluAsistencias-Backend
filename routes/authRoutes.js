@@ -46,18 +46,15 @@ router.post("/usuarios/verificar-password", authMiddleware, async (req, res) => 
   try {
     const { contraseña } = req.body;
 
-    // Verificar que la contraseña esté presente
     if (!contraseña) {
       return res.status(400).json({ message: "La contraseña es requerida." });
     }
 
-    // Obtener el usuario autenticado
     const usuario = await User.findById(req.user.id);
     if (!usuario) {
       return res.status(404).json({ message: "Usuario no encontrado." });
     }
 
-    // Verificar la contraseña
     const esValida = await bcrypt.compare(contraseña, usuario.password);
     if (!esValida) {
       return res.status(401).json({ message: "Contraseña incorrecta." });
@@ -233,46 +230,34 @@ router.put("/activar/:id", authMiddleware, async (req, res) => {
 router.put("/usuarios/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const { contraseña, rol } = req.body;
-
-    console.log("🔹 Petición recibida para cambiar rol:", { id, rol, contraseña });
+    const { contraseña, rol, activo } = req.body;
 
     if (!contraseña) {
       return res.status(400).json({ message: "La contraseña es requerida." });
     }
 
-    // 📌 Verificar que el usuario autenticado existe
     const usuarioAutenticado = await User.findById(req.user.id);
     if (!usuarioAutenticado) {
       return res.status(404).json({ message: "Usuario no encontrado." });
     }
 
-    // 📌 Validar la contraseña
     const esValida = await bcrypt.compare(contraseña, usuarioAutenticado.password);
     if (!esValida) {
       return res.status(401).json({ message: "Contraseña incorrecta." });
     }
 
-    // 📌 Obtener usuario a actualizar
     const usuarioAActualizar = await User.findById(id);
     if (!usuarioAActualizar) {
       return res.status(404).json({ message: "Usuario a actualizar no encontrado." });
     }
 
-    console.log("🔹 Usuario antes de actualizar:", usuarioAActualizar);
+    const updateData = {};
+    if (rol) updateData.rol = rol;
+    if (activo !== undefined) updateData.activo = activo;
 
-    // 📌 Asegurar que el rol está definido
-    if (!rol) {
-      return res.status(400).json({ message: "El rol es requerido para actualizar el usuario." });
-    }
+    await User.findByIdAndUpdate(id, { $set: updateData });
 
-    // 📌 Actualizar usuario con el rol
-    await User.findByIdAndUpdate(id, { $set: { rol } });
-
-    // 📌 Confirmar actualización
     const usuarioActualizado = await User.findById(id);
-    console.log("✅ Usuario después de actualizar:", usuarioActualizado);
-
     res.status(200).json({ message: "Usuario actualizado correctamente.", usuarioActualizado });
   } catch (error) {
     console.error("❌ Error al actualizar usuario:", error);
@@ -280,19 +265,16 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
   }
 });
 
-
 // 📌 Eliminar usuario (con verificación de contraseña)
 router.delete("/usuarios/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const { contraseña } = req.body;
 
-    // Verificar que la contraseña esté presente
     if (!contraseña) {
       return res.status(400).json({ message: "La contraseña es requerida." });
     }
 
-    // Verificar la contraseña
     const usuario = await User.findById(req.user.id);
     if (!usuario) {
       return res.status(404).json({ message: "Usuario no encontrado." });
@@ -303,7 +285,6 @@ router.delete("/usuarios/:id", authMiddleware, async (req, res) => {
       return res.status(401).json({ message: "Contraseña incorrecta." });
     }
 
-    // Eliminar el usuario
     await User.findByIdAndDelete(id);
     res.status(200).json({ message: "Usuario eliminado correctamente." });
   } catch (error) {
@@ -311,6 +292,5 @@ router.delete("/usuarios/:id", authMiddleware, async (req, res) => {
     res.status(500).json({ message: "Error al eliminar usuario." });
   }
 });
-
 
 module.exports = router;
