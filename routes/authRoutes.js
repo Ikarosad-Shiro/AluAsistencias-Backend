@@ -233,6 +233,8 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
     const { id } = req.params;
     const { contraseña, rol } = req.body;
 
+    console.log("🔹 Petición recibida para cambiar rol:", { id, rol, contraseña });
+
     if (!contraseña) {
       return res.status(400).json({ message: "La contraseña es requerida." });
     }
@@ -267,12 +269,16 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
       return res.status(403).json({ message: "No puedes asignar el rol de Dios." });
     }
 
-    // 📌 ACTUALIZAR EL ROL EN MONGO (Código corregido)
-    const usuarioActualizado = await User.findByIdAndUpdate(
-      id,
-      { $set: { rol } }, // 🔥 Asegurar que el rol se actualiza
-      { new: true }      // 🔥 Retornar el usuario actualizado
+    console.log("🔹 Antes de actualizar, usuario tenía rol:", usuarioAActualizar.rol);
+
+    // 📌 CORRECCIÓN: Usamos `findOneAndUpdate` en vez de `save()`
+    const usuarioActualizado = await User.findOneAndUpdate(
+      { _id: id },
+      { $set: { rol } },
+      { new: true } // 🔥 Esto devuelve el usuario actualizado
     );
+
+    console.log("✅ Después de actualizar, usuario ahora tiene rol:", usuarioActualizado.rol);
 
     res.status(200).json({ message: "Rol actualizado correctamente.", usuario: usuarioActualizado });
   } catch (error) {
