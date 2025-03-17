@@ -41,6 +41,7 @@ router.get("/usuarios", async (req, res) => {
   }
 });
 
+
 // 📌 Verificar contraseña antes de una acción sensible
 router.post("/usuarios/verificar-password", authMiddleware, async (req, res) => {
   try {
@@ -230,7 +231,7 @@ router.put("/activar/:id", authMiddleware, async (req, res) => {
 router.put("/usuarios/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const { contraseña, rol, activo } = req.body;
+    const { contraseña, rol } = req.body;
 
     if (!contraseña) {
       return res.status(400).json({ message: "La contraseña es requerida." });
@@ -251,14 +252,24 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
       return res.status(404).json({ message: "Usuario a actualizar no encontrado." });
     }
 
-    const updateData = {};
-    if (rol) updateData.rol = rol;
-    if (activo !== undefined) updateData.activo = activo;
+    // Validar restricciones de roles
+    if (usuarioAActualizar.rol === 'Dios') {
+      return res.status(403).json({ message: "No puedes cambiar el rol de Dios." });
+    }
 
-    await User.findByIdAndUpdate(id, { $set: updateData });
+    if (usuarioAutenticado.rol === 'Administrador' && usuarioAActualizar.rol === 'Administrador') {
+      return res.status(403).json({ message: "No puedes cambiar el rol de otro Administrador." });
+    }
 
-    const usuarioActualizado = await User.findById(id);
-    res.status(200).json({ message: "Usuario actualizado correctamente.", usuarioActualizado });
+    if (!['Revisor', 'Administrador'].includes(rol)) {
+      return res.status(400).json({ message: "Rol no válido." });
+    }
+
+    // Actualizar el rol
+    usuarioAActualizar.rol = rol;
+    await usuarioAActualizar.save();
+
+    res.status(200).json({ message: "Rol actualizado correctamente.", usuario: usuarioAActualizar });
   } catch (error) {
     console.error("❌ Error al actualizar usuario:", error);
     res.status(500).json({ message: "Error al actualizar usuario." });
