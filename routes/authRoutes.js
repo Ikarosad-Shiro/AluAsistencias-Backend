@@ -256,7 +256,11 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
 
     console.log("🔹 Antes de actualizar, usuario tenía rol:", usuarioAActualizar.rol);
 
-    // 🚨 Asegurar que el rol es válido y que realmente estamos cambiándolo
+    // 🚨 Si el usuario ya tiene el rol deseado, solo responde sin error.
+    if (usuarioAActualizar.rol === rol) {
+      return res.status(200).json({ message: `ℹ️ El usuario ya tiene el rol ${rol}.` });
+    }
+
     if (!rol || (rol !== "Administrador" && rol !== "Revisor")) {
       return res.status(400).json({ message: "Rol no válido." });
     }
@@ -269,11 +273,7 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
       return res.status(403).json({ message: "No puedes asignar el rol de Dios." });
     }
 
-    // 🚨 Evitar que se actualice si el rol ya es el mismo
-    if (usuarioAActualizar.rol === rol) {
-      return res.status(400).json({ message: `El usuario ya tiene el rol ${rol}.` });
-    }
-
+    // **🚀 ACTUALIZAR EL ROL EN MONGO**
     const usuarioActualizado = await User.findOneAndUpdate(
       { _id: id },
       { $set: { rol } },
