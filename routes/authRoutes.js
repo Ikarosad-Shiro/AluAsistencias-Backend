@@ -233,13 +233,15 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
     const { id } = req.params;
     const { contraseña, rol } = req.body;
 
+    console.log("🔹 Petición recibida para cambiar rol:", { id, rol, contraseña });
+
     if (!contraseña) {
       return res.status(400).json({ message: "La contraseña es requerida." });
     }
 
     const usuarioAutenticado = await User.findById(req.user.id);
     if (!usuarioAutenticado) {
-      return res.status(404).json({ message: "Usuario no encontrado." });
+      return res.status(404).json({ message: "Usuario autenticado no encontrado." });
     }
 
     const esValida = await bcrypt.compare(contraseña, usuarioAutenticado.password);
@@ -252,29 +254,39 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
       return res.status(404).json({ message: "Usuario a actualizar no encontrado." });
     }
 
-    // Validar restricciones de roles
-    if (usuarioAActualizar.rol === 'Dios') {
+    // 📌 Restricciones de cambio de rol
+    if (usuarioAActualizar.rol === "Dios") {
       return res.status(403).json({ message: "No puedes cambiar el rol de Dios." });
     }
 
-    if (usuarioAutenticado.rol === 'Administrador' && usuarioAActualizar.rol === 'Administrador') {
+    if (usuarioAutenticado.rol === "Administrador" && usuarioAActualizar.rol === "Administrador") {
       return res.status(403).json({ message: "No puedes cambiar el rol de otro Administrador." });
     }
 
-    if (!['Revisor', 'Administrador'].includes(rol)) {
+    if (!["Revisor", "Administrador"].includes(rol)) {
       return res.status(400).json({ message: "Rol no válido." });
     }
 
-    // Actualizar el rol
-    usuarioAActualizar.rol = rol;
-    await usuarioAActualizar.save();
+    // ✅ Asegurar que el campo `rol` se actualiza correctamente en MongoDB
+    const usuarioActualizado = await User.findByIdAndUpdate(
+      id,
+      { $set: { rol: rol } },
+      { new: true }
+    );
 
-    res.status(200).json({ message: "Rol actualizado correctamente.", usuario: usuarioAActualizar });
+    if (!usuarioActualizado) {
+      return res.status(500).json({ message: "Error al actualizar el rol en la base de datos." });
+    }
+
+    console.log("✅ Usuario después de actualizar:", usuarioActualizado);
+
+    res.status(200).json({ message: "Rol actualizado correctamente.", usuario: usuarioActualizado });
   } catch (error) {
     console.error("❌ Error al actualizar usuario:", error);
     res.status(500).json({ message: "Error al actualizar usuario." });
   }
 });
+
 
 // 📌 Eliminar usuario (con verificación de contraseña)
 router.delete("/usuarios/:id", authMiddleware, async (req, res) => {
