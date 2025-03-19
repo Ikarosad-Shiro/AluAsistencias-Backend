@@ -231,9 +231,9 @@ router.put("/activar/:id", authMiddleware, async (req, res) => {
 router.put("/usuarios/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const { contraseña, rol: nuevoRol } = req.body;
+    const { contraseña, activo } = req.body; // 📌 Verificamos que se reciba `activo`
 
-    console.log("🔹 Petición recibida para cambiar rol:", { id, nuevoRol, contraseña });
+    console.log("🔹 Petición recibida para cambiar estado:", { id, activo, contraseña });
 
     if (!contraseña) {
       return res.status(400).json({ message: "La contraseña es requerida." });
@@ -254,42 +254,20 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
       return res.status(404).json({ message: "Usuario a actualizar no encontrado." });
     }
 
-    console.log("🔹 Antes de actualizar, usuario tenía rol:", usuarioAActualizar.rol);
+    console.log("🔹 Estado actual:", usuarioAActualizar.activo);
 
-    // 🚨 Si el usuario ya tiene el rol deseado, solo responde sin error.
-    if (usuarioAActualizar.rol === nuevoRol) {
-      return res.status(200).json({ message: `ℹ️ El usuario ya tiene el rol ${nuevoRol}.` });
-    }
+    // **🚀 ACTUALIZAR EL ESTADO EN MONGO**
+    usuarioAActualizar.activo = activo; // 🛠️ Asegurar que se actualiza correctamente
+    await usuarioAActualizar.save();
 
-    if (!["Administrador", "Revisor"].includes(nuevoRol)) {
-      return res.status(400).json({ message: "Rol no válido." });
-    }
+    console.log("✅ Estado actualizado en MongoDB:", usuarioAActualizar.activo);
 
-    if (usuarioAutenticado.rol === "Administrador" && usuarioAActualizar.rol === "Administrador") {
-      return res.status(403).json({ message: "No puedes cambiar el rol de otro Administrador." });
-    }
-
-    if (nuevoRol === "Dios") {
-      return res.status(403).json({ message: "No puedes asignar el rol de Dios." });
-    }
-
-    // **🚀 ACTUALIZAR EL ROL EN MONGO**
-    const usuarioActualizado = await User.findOneAndUpdate(
-      { _id: id },
-      { $set: { rol: nuevoRol } },
-      { new: true }
-    );
-
-    console.log("✅ Después de actualizar, usuario ahora tiene rol:", usuarioActualizado.rol);
-
-    res.status(200).json({ message: "Rol actualizado correctamente.", usuario: usuarioActualizado });
+    res.status(200).json({ message: "Estado actualizado correctamente.", usuario: usuarioAActualizar });
   } catch (error) {
     console.error("❌ Error al actualizar usuario:", error);
     res.status(500).json({ message: "Error al actualizar usuario." });
   }
 });
-
-
 
 // 📌 Eliminar usuario (con verificación de contraseña)
 router.delete("/usuarios/:id", authMiddleware, async (req, res) => {
