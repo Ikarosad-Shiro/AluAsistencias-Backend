@@ -269,28 +269,41 @@ router.put("/usuarios/:id", authMiddleware, async (req, res) => {
   }
 });
 
-// 📌 Eliminar usuario (con verificación de contraseña)
+// 📌 Eliminar usuario (requiere contraseña y restricciones)
 router.delete("/usuarios/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const { contraseña } = req.body;
+    const usuarioAutenticado = await User.findById(req.user.id);
+    const usuarioAEliminar = await User.findById(id);
 
+    if (!usuarioAutenticado) {
+      return res.status(404).json({ message: "Usuario autenticado no encontrado." });
+    }
+    if (!usuarioAEliminar) {
+      return res.status(404).json({ message: "Usuario a eliminar no encontrado." });
+    }
     if (!contraseña) {
       return res.status(400).json({ message: "La contraseña es requerida." });
     }
 
-    const usuario = await User.findById(req.user.id);
-    if (!usuario) {
-      return res.status(404).json({ message: "Usuario no encontrado." });
-    }
-
-    const esValida = await bcrypt.compare(contraseña, usuario.password);
+    // 🔒 Verificar la contraseña antes de eliminar
+    const esValida = await bcrypt.compare(contraseña, usuarioAutenticado.password);
     if (!esValida) {
       return res.status(401).json({ message: "Contraseña incorrecta." });
     }
 
+    // 🚫 Restricciones de eliminación
+    if (usuarioAEliminar.rol === 'Dios') {
+      return res.status(403).json({ message: "No puedes eliminar a 'Dios'." });
+    }
+    if (usuarioAutenticado.rol === 'Administrador' && usuarioAEliminar.rol === 'Administrador') {
+      return res.status(403).json({ message: "No puedes eliminar a otro Administrador." });
+    }
+
     await User.findByIdAndDelete(id);
     res.status(200).json({ message: "Usuario eliminado correctamente." });
+
   } catch (error) {
     console.error("❌ Error al eliminar usuario:", error);
     res.status(500).json({ message: "Error al eliminar usuario." });
