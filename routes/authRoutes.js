@@ -231,38 +231,60 @@ router.put("/activar/:id", authMiddleware, async (req, res) => {
 router.put("/usuarios/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const { contraseña, activo } = req.body; // 📌 Verificamos que se reciba `activo`
+    const { contraseña, activo, rol } = req.body;
+    const usuarioAutenticado = await User.findById(req.user.id);
+    const usuarioAActualizar = await User.findById(id);
 
-    console.log("🔹 Petición recibida para cambiar estado:", { id, activo, contraseña });
-
+    if (!usuarioAutenticado) {
+      return res.status(404).json({ message: "Usuario autenticado no encontrado." });
+    }
+    if (!usuarioAActualizar) {
+      return res.status(404).json({ message: "Usuario a actualizar no encontrado." });
+    }
     if (!contraseña) {
       return res.status(400).json({ message: "La contraseña es requerida." });
     }
 
-    const usuarioAutenticado = await User.findById(req.user.id);
-    if (!usuarioAutenticado) {
-      return res.status(404).json({ message: "Usuario no encontrado." });
-    }
-
+    // 🔒 Verificar la contraseña antes de hacer cambios
     const esValida = await bcrypt.compare(contraseña, usuarioAutenticado.password);
     if (!esValida) {
       return res.status(401).json({ message: "Contraseña incorrecta." });
     }
 
-    const usuarioAActualizar = await User.findById(id);
-    if (!usuarioAActualizar) {
-      return res.status(404).json({ message: "Usuario a actualizar no encontrado." });
+    console.log("🔹 Petición recibida:", { id, activo, rol, contraseña }); // 🔥 DEBUG
+
+    // 🛑 RESTRICCIONES POR ROL
+    if (usuarioAActualizar.rol === 'Dios' && usuarioAutenticado.rol !== 'Dios') {
+      return res.status(403).json({ message: "No puedes modificar a un usuario 'Dios'." });
     }
 
-    console.log("🔹 Estado actual:", usuarioAActualizar.activo);
+    if (usuarioAutenticado.rol === 'Administrador') {
+      if (usuarioAActualizar.rol === 'Administrador' && rol !== usuarioAActualizar.rol) {
+        return res.status(403).json({ message: "No puedes cambiar el rol de otro Administrador." });
+      }
+      if (rol === 'Dios') {
+        return res.status(403).json({ message: "No puedes ascender a alguien a 'Dios'." });
+      }
+    }
 
-    // **🚀 ACTUALIZAR EL ESTADO EN MONGO**
-    usuarioAActualizar.activo = activo; // 🛠️ Asegurar que se actualiza correctamente
-    await usuarioAActualizar.save();
+    // ⚡ **CORRECCIÓN: ACTUALIZAR USANDO `findByIdAndUpdate` EN LUGAR DE `save()`**
+    const updateData = {};
+    if (rol && usuarioAActualizar.rol !== rol) {
+      updateData.rol = rol;
+    }
+    if (activo !== undefined && usuarioAActualizar.activo !== activo) {
+      updateData.activo = activo;
+    }
 
-    console.log("✅ Estado actualizado en MongoDB:", usuarioAActualizar.activo);
+    if (Object.keys(updateData).length > 0) {
+      const usuarioActualizado = await User.findByIdAndUpdate(id, updateData, { new: true });
 
-    res.status(200).json({ message: "Estado actualizado correctamente.", usuario: usuarioAActualizar });
+      console.log(`✅ Usuario actualizado en MongoDB:`, usuarioActualizado);
+      return res.status(200).json({ message: "Usuario actualizado correctamente.", usuario: usuarioActualizado });
+    } else {
+      return res.status(400).json({ message: "No hubo cambios en el usuario." });
+    }
+    
   } catch (error) {
     console.error("❌ Error al actualizar usuario:", error);
     res.status(500).json({ message: "Error al actualizar usuario." });
