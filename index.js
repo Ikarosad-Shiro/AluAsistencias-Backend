@@ -15,7 +15,7 @@ const authMiddleware = require("./middleware/authMiddleware");
 const trabajadoresRoutes = require("./routes/trabajadoresRoutes");
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -113,6 +113,9 @@ cron.schedule("0 0 * * *", async () => {
         console.error("❌ Error en el cron job de eliminación de usuarios:", error);
     }
 });
+
+//Ruta del configuracion del calendario
+app.use('/api/calendario', require('./routes/calendarioRoutes'));
 
 // 🛑 Manejo de errores global
 app.use((err, req, res, next) => {
