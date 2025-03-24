@@ -15,7 +15,7 @@ const authMiddleware = require("./middleware/authMiddleware");
 const trabajadoresRoutes = require("./routes/trabajadoresRoutes");
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 const MONGO_URI = process.env.MONGO_URI;
 const JWT_SECRET = process.env.JWT_SECRET;
 
