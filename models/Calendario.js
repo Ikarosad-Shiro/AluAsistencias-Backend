@@ -1,20 +1,29 @@
 const mongoose = require('mongoose');
 
 const diaEspecialSchema = new mongoose.Schema({
-  fecha: {
-    type: Date,
-    required: true
-  },
-  tipo: {
-    type: String,
-    required: true,
-    enum: ['festivo', 'vacaciones', 'puente', 'descanso', 'media jornada']
-  },
-  descripcion: {
-    type: String,
-    default: ''
-  }
-});
+    fecha: {
+      type: Date,
+      required: true
+    },
+    tipo: {
+      type: String,
+      required: true,
+      enum: [
+        'festivo',
+        'puente',
+        'descanso',
+        'media jornada',
+        'capacitación',
+        'evento',
+        'suspensión'
+      ]
+    },
+    descripcion: {
+      type: String,
+      default: ''
+    }
+  });
+  
 
 const calendarioSchema = new mongoose.Schema({
   año: {
