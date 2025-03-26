@@ -13,6 +13,7 @@ const User = require("./models/User");
 const authRoutes = require("./routes/authRoutes");
 const authMiddleware = require("./middleware/authMiddleware");
 const trabajadoresRoutes = require("./routes/trabajadoresRoutes");
+const sedeRoutes = require('./routes/sedeRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -70,6 +71,10 @@ mongoose.connect(MONGO_URI)
 // 📌 Rutas
 app.use("/api/auth", authRoutes);
 app.use("/api/trabajadores", trabajadoresRoutes);
+app.use('/api/sedes', sedeRoutes);
+app.use('/api/calendario', require('./routes/calendarioRoutes'));
+app.use('/api/sedes', require('./routes/sedeRoutes'));
+
 
 // 🛠 Ruta de prueba para verificar que el servidor corre bien
 app.get("/", (req, res) => {

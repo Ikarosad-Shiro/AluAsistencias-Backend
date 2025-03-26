@@ -1,9 +1,15 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 const sedeSchema = new mongoose.Schema({
-  nombre: { type: String, required: true },
-  ubicacion: { type: String, required: true },
-  checadores: [{ type: String }] // Lista de IDs o nombres de checadores
+  id: {
+    type: Number,
+    required: true,
+    unique: true
+  },
+  nombre: {
+    type: String,
+    required: true
+  }
 });
 
-module.exports = mongoose.model("Sede", sedeSchema);
+module.exports = mongoose.model('Sede', sedeSchema);
