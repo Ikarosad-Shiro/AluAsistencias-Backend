@@ -66,7 +66,8 @@ const forgotPassword = async(req, res) => {
         });
 
         // 🔗 Enlace de recuperación
-        const resetLink = `http://localhost:4200/reset-password?token=${resetToken}`;
+        //const resetLink = `http://localhost:4200/reset-password?token=${resetToken}`;
+        const resetLink =`${process.env.BASE_URL}reset-password?token=${resetToken}`;
         const mailOptions = {
             from: process.env.EMAIL_USER,
             to: user.email,
