@@ -72,9 +72,6 @@ mongoose.connect(MONGO_URI)
 app.use("/api/auth", authRoutes);
 app.use("/api/trabajadores", trabajadoresRoutes);
 app.use('/api/sedes', sedeRoutes);
-app.use('/api/calendario', require('./routes/calendarioRoutes'));
-app.use('/api/sedes', require('./routes/sedeRoutes'));
-
 
 // 🛠 Ruta de prueba para verificar que el servidor corre bien
 app.get("/", (req, res) => {
