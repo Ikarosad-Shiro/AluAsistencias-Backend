@@ -29,12 +29,12 @@ router.post('/agregar', async (req, res) => {
 
 // 📋 Obtener todas las sedes (para Angular)
 router.get('/todas', async (req, res) => {
-    try {
-      const sedes = await Sede.find();
-      res.json(sedes);
-    } catch (error) {
-      res.status(500).json({ message: 'Error al obtener sedes', error });
-    }
-  });
+  try {
+    const sedes = await Sede.find().sort({ id: 1 });
+    res.json(sedes);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 module.exports = router;
