@@ -93,19 +93,21 @@ router.post('/agregar-dia', async (req, res) => {
 // ✏️ Editar un día especial
 router.put('/editar-dia', async (req, res) => {
   try {
-    const { año, sede, fecha, nuevoTipo, nuevaDescripcion } = req.body;
+    const { año, sede, fecha, tipo, descripcion } = req.body;
 
     const calendario = await Calendario.findOne({ año, sedes: { $in: [sede] } });
     if (!calendario) return res.status(404).json({ message: 'Calendario no encontrado.' });
 
+    const fechaISO = new Date(fecha).toISOString().slice(0, 10);
+
     const dia = calendario.diasEspeciales.find(
-      d => d.fecha.toISOString().slice(0, 10) === new Date(fecha).toISOString().slice(0, 10)
+      d => d.fecha.toISOString().slice(0, 10) === fechaISO
     );
 
     if (!dia) return res.status(404).json({ message: 'Día no encontrado en el calendario.' });
 
-    dia.tipo = nuevoTipo;
-    dia.descripcion = nuevaDescripcion;
+    dia.tipo = tipo;
+    dia.descripcion = descripcion;
 
     await calendario.save();
     res.json({ message: 'Día actualizado correctamente', calendario });
