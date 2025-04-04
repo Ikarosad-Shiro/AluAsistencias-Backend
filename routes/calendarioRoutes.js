@@ -44,6 +44,22 @@ router.post('/agregar-dia', async (req, res) => {
   try {
     const { año, sede, fecha, tipo, descripcion } = req.body;
 
+    if (!año || !sede || !fecha || !tipo) {
+      return res.status(400).json({ message: 'Faltan campos obligatorios.' });
+    }
+
+    const tiposValidos = [
+      'festivo', 'puente', 'descanso',
+      'media jornada', 'capacitación',
+      'evento', 'suspensión'
+    ];
+
+    if (!tiposValidos.includes(tipo)) {
+      return res.status(400).json({ message: `Tipo inválido. Debe ser uno de: ${tiposValidos.join(', ')}` });
+    }
+
+    const fechaISO = new Date(fecha).toISOString().slice(0, 10);
+
     let calendario = await Calendario.findOne({ año, sedes: { $in: [sede] } });
 
     if (!calendario) {
@@ -51,18 +67,25 @@ router.post('/agregar-dia', async (req, res) => {
     }
 
     const existe = calendario.diasEspeciales.some(
-      d => d.fecha.toISOString().slice(0, 10) === new Date(fecha).toISOString().slice(0, 10)
+      d => d.fecha.toISOString().slice(0, 10) === fechaISO
     );
 
     if (existe) {
       return res.status(400).json({ message: 'Ese día ya está configurado.' });
     }
 
-    calendario.diasEspeciales.push({ fecha, tipo, descripcion });
+    // ✅ Aseguramos que fecha sea Date
+    calendario.diasEspeciales.push({
+      fecha: new Date(fecha),
+      tipo,
+      descripcion: descripcion || ''
+    });
+
     await calendario.save();
 
     res.json({ message: 'Día especial agregado con éxito', calendario });
   } catch (error) {
+    console.error('❌ Error en /agregar-dia:', error);
     res.status(500).json({ error: error.message });
   }
 });
