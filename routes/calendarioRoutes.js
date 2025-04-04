@@ -119,18 +119,34 @@ router.delete('/eliminar-dia', async (req, res) => {
   try {
     const { año, sede, fecha } = req.body;
 
+    console.log('🧨 Petición para eliminar día:', { año, sede, fecha });
+
     const calendario = await Calendario.findOne({ año, sedes: { $in: [sede] } });
     if (!calendario) return res.status(404).json({ message: 'Calendario no encontrado.' });
 
+    const fechaISO = new Date(fecha).toISOString().slice(0, 10);
+
+    const cantidadAntes = calendario.diasEspeciales.length;
+
     calendario.diasEspeciales = calendario.diasEspeciales.filter(
-      d => d.fecha.toISOString().slice(0, 10) !== new Date(fecha).toISOString().slice(0, 10)
+      d => d.fecha.toISOString().slice(0, 10) !== fechaISO
     );
 
+    const cantidadDespues = calendario.diasEspeciales.length;
+
+    if (cantidadAntes === cantidadDespues) {
+      return res.status(404).json({ message: 'Día no encontrado para eliminar.' });
+    }
+
     await calendario.save();
+
+    console.log('✅ Día eliminado correctamente.');
     res.json({ message: 'Día eliminado del calendario', calendario });
   } catch (error) {
+    console.error('❌ Error al eliminar día:', error);
     res.status(500).json({ error: error.message });
   }
 });
+
 
 module.exports = router;
