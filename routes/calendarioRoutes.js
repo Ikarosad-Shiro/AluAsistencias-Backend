@@ -95,8 +95,14 @@ router.put('/editar-dia', async (req, res) => {
   try {
     const { año, sede, fecha, tipo, descripcion } = req.body;
 
+    if (!año || !sede || !fecha || !tipo) {
+      return res.status(400).json({ message: 'Faltan campos obligatorios.' });
+    }
+
     const calendario = await Calendario.findOne({ año, sedes: { $in: [sede] } });
-    if (!calendario) return res.status(404).json({ message: 'Calendario no encontrado.' });
+    if (!calendario) {
+      return res.status(404).json({ message: 'Calendario no encontrado.' });
+    }
 
     const fechaISO = new Date(fecha).toISOString().slice(0, 10);
 
@@ -104,14 +110,18 @@ router.put('/editar-dia', async (req, res) => {
       d => d.fecha.toISOString().slice(0, 10) === fechaISO
     );
 
-    if (!dia) return res.status(404).json({ message: 'Día no encontrado en el calendario.' });
+    if (!dia) {
+      return res.status(404).json({ message: 'Día no encontrado en el calendario.' });
+    }
 
+    // Actualizar campos
     dia.tipo = tipo;
-    dia.descripcion = descripcion;
+    dia.descripcion = descripcion || '';
 
     await calendario.save();
     res.json({ message: 'Día actualizado correctamente', calendario });
   } catch (error) {
+    console.error('❌ Error en /editar-dia:', error);
     res.status(500).json({ error: error.message });
   }
 });
