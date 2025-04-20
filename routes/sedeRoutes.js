@@ -36,7 +36,7 @@ router.get('/todas', async (req, res) => {
   }
 });
 
-// 📍 Obtener sede individual por ID
+// 📍 Obtener sede por ID (para detalle)
 router.get('/:id', async (req, res) => {
   try {
     const sede = await Sede.findOne({ id: req.params.id });
@@ -49,10 +49,11 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// ✏️ Actualizar campos editables (direccion, zona, responsable)
-router.put('/actualizar/:id', async (req, res) => {
+// ✏️ Actualizar campos editables (dirección, zona, responsable)
+router.put('/:id', async (req, res) => {
   try {
     const { direccion, zona, responsable } = req.body;
+
     const sede = await Sede.findOneAndUpdate(
       { id: req.params.id },
       { direccion, zona, responsable },
