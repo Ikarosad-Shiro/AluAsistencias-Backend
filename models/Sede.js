@@ -1,3 +1,4 @@
+// ✅ models/Sede.js
 const mongoose = require('mongoose');
 
 const sedeSchema = new mongoose.Schema({
@@ -9,6 +10,18 @@ const sedeSchema = new mongoose.Schema({
   nombre: {
     type: String,
     required: true
+  },
+  direccion: {
+    type: String,
+    default: ''
+  },
+  zona: {
+    type: String,
+    default: ''
+  },
+  responsable: {
+    type: String,
+    default: ''
   }
 });
 
