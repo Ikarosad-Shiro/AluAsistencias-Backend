@@ -10,7 +10,7 @@ const {
     resetPasswordConfirm
 } = require("../controllers/authController");
 
-const { enviarCorreoVerificacion } = require("../services/emailService"); // Importamos el servicio de email
+const { enviarCorreoVerificacion,enviarCodigoVerificacion } = require("../services/emailService"); // Importamos el servicio de email
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -340,4 +340,21 @@ router.delete("/usuarios/:id", authMiddleware, async(req, res) => {
     }
 });
 
+// 📩 Enviar código de verificación para eliminar sede
+router.post('/enviar-codigo', authMiddleware, async (req, res) => {
+    try {
+      const { email, codigo } = req.body;
+  
+      if (!email || !codigo) {
+        return res.status(400).json({ message: 'Faltan datos necesarios.' });
+      }
+  
+      await enviarCodigoVerificacion(email, codigo);
+      res.status(200).json({ message: '✅ Código enviado correctamente.' });
+    } catch (error) {
+      console.error('❌ Error al enviar código:', error);
+      res.status(500).json({ message: 'Error al enviar el código de verificación.' });
+    }
+  });
+  
 module.exports = router;

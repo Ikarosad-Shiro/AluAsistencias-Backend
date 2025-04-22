@@ -1,7 +1,8 @@
+// ✅ emailService.js
 const nodemailer = require("nodemailer");
 
 const transporter = nodemailer.createTransport({
-  service: "gmail", // Cambia esto si usas otro proveedor
+  service: "gmail",
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
@@ -24,10 +25,33 @@ const enviarCorreoVerificacion = async (email, token) => {
       `,
     });
 
-    console.log(`✅ Correo de verificación enviado a ${email}`);
+    console.log(`✅ Correo de verificacion enviado a ${email}`);
   } catch (error) {
     console.error("❌ Error al enviar el correo:", error);
   }
 };
 
-module.exports = { enviarCorreoVerificacion };
+const enviarCodigoVerificacion = async (email, codigo) => {
+  try {
+    await transporter.sendMail({
+      from: `"Alu Asistencias" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: "Código de Verificación para Eliminar Sede",
+      html: `
+        <h2>¡Confirmación Crítica!</h2>
+        <p>Tu código de verificación es:</p>
+        <h1 style="color:#6a1d97;">${codigo}</h1>
+        <p>Este código es único y tiene un tiempo de expiración corto.</p>
+      `,
+    });
+
+    console.log(`✅ Código de verificación enviado a ${email}`);
+  } catch (error) {
+    console.error("❌ Error al enviar el código de verificación:", error);
+  }
+};
+
+module.exports = {
+  enviarCorreoVerificacion,
+  enviarCodigoVerificacion
+};

@@ -70,4 +70,40 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// 🔥 Marcar sede como en proceso de eliminación
+router.put('/marcar-eliminacion/:id', async (req, res) => {
+  try {
+    const sede = await Sede.findOne({ id: req.params.id });
+    if (!sede) {
+      return res.status(404).json({ message: 'Sede no encontrada.' });
+    }
+
+    sede.estado = 'eliminacion_pendiente';
+    sede.fechaEliminacionIniciada = new Date();
+    await sede.save();
+
+    res.json({ message: 'Sede marcada como en proceso de eliminación.', sede });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔄 Cancelar eliminación de sede
+router.put('/cancelar-eliminacion/:id', async (req, res) => {
+  try {
+    const sede = await Sede.findOne({ id: req.params.id });
+    if (!sede) {
+      return res.status(404).json({ message: 'Sede no encontrada.' });
+    }
+
+    sede.estado = 'activa';
+    sede.fechaEliminacionIniciada = null;
+    await sede.save();
+
+    res.json({ message: 'Eliminación cancelada. La sede ha sido restaurada como activa.', sede });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

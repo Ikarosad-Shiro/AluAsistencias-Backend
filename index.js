@@ -110,10 +110,20 @@ cron.schedule("0 0 * * *", async () => {
         });
 
         console.log(`🗑️ Usuarios inactivos eliminados: ${usuariosInactivos.deletedCount}`);
-
     } catch (error) {
         console.error("❌ Error en el cron job de eliminación de usuarios:", error);
     }
+
+        // 📌 Eliminar sedes en estado "eliminacion_pendiente" hace más de 15 días
+        const hace15Dias = new Date();
+        hace15Dias.setDate(ahora.getDate() - 15);
+    
+        const sedesEliminadas = await Sede.deleteMany({
+          estado: 'eliminacion_pendiente',
+          fechaEliminacionIniciada: { $lte: hace15Dias }
+        });
+    
+        console.log(`🏢 Sedes eliminadas permanentemente: ${sedesEliminadas.deletedCount}`);    
 });
 
 //Ruta del configuracion del calendario

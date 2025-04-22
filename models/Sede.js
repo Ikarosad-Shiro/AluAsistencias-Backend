@@ -22,6 +22,15 @@ const sedeSchema = new mongoose.Schema({
   responsable: {
     type: String,
     default: ''
+  },
+  estado: {
+    type: String,
+    enum: ['activa', 'eliminacion_pendiente'],
+    default: 'activa'
+  },
+  fechaEliminacionIniciada: {
+    type: Date,
+    default: null
   }
 });
 
