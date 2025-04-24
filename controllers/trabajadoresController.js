@@ -114,13 +114,13 @@ const obtenerTrabajadorPorId = async (req, res) => {
 const actualizarTrabajador = async (req, res) => {
     try {
         const { id } = req.params;
-        const { nombre, sede, correo, telefono, telefonoEmergencia, direccion } = req.body;
+        const { nombre, sede, correo, telefono, telefonoEmergencia, direccion, puesto } = req.body;
 
         const trabajadorActualizado = await Trabajador.findByIdAndUpdate(
             id,
-            { nombre, sede, correo, telefono, telefonoEmergencia, direccion },
+            { nombre, sede, correo, telefono, telefonoEmergencia, direccion, puesto },
             { new: true }
-        );
+        );        
 
         if (!trabajadorActualizado) {
             return res.status(404).json({ message: 'Trabajador no encontrado' });

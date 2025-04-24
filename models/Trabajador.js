@@ -8,7 +8,8 @@ const TrabajadorSchema = new mongoose.Schema({
     correo: { type: String, default: '' },  // 🆕 Nuevo campo
     telefono: { type: String, default: '' }, // 🆕 Nuevo campo
     telefonoEmergencia: { type: String, default: '' }, // 🆕 Nuevo campo
-    direccion: { type: String, default: '' } // 🆕 Nuevo campo
+    direccion: { type: String, default: '' }, // 🆕 Nuevo campo
+    puesto: { type: String, default: '' } // 🆕 Nuevo campo
 });
 
 module.exports = mongoose.model('Trabajador', TrabajadorSchema, 'trabajadores');
