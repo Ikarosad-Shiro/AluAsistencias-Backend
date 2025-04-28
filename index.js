@@ -129,6 +129,9 @@ cron.schedule("0 0 * * *", async () => {
 //Ruta del configuracion del calendario
 app.use('/api/calendario', require('./routes/calendarioRoutes'));
 
+// 📌 Calendario de Trabajador (personal)
+app.use('/api/calendario-trabajador', require('./routes/calendarioTrabajadorRoutes'));
+
 // 🛑 Manejo de errores global
 app.use((err, req, res, next) => {
     console.error("❌ Error no manejado:", err);
