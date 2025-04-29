@@ -21,7 +21,11 @@ router.post('/', authMiddleware, async (req, res) => {
     try {
       const { trabajador, anio, diasEspeciales } = req.body;
   
-      // 🔥 Asegurarte de que sea ObjectId
+      console.log('📩 Recibido en backend:');
+      console.log('trabajador:', trabajador);
+      console.log('anio:', anio);
+      console.log('diasEspeciales:', diasEspeciales);
+  
       const trabajadorObjectId = mongoose.Types.ObjectId(trabajador);
   
       let calendario = await CalendarioTrabajador.findOne({ trabajador: trabajadorObjectId, anio });
@@ -38,7 +42,7 @@ router.post('/', authMiddleware, async (req, res) => {
       console.error('❌ Error al guardar calendario del trabajador:', error);
       res.status(500).json({ message: 'Error al guardar calendario del trabajador' });
     }
-  });
+  });  
 
 // 📌 Eliminar un día especial del calendario del trabajador
 router.put('/:trabajador/:anio', authMiddleware, async (req, res) => {
