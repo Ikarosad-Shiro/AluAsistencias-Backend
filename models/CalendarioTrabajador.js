@@ -1,3 +1,4 @@
+// ✅ MODELO ACTUALIZADO con horaEntrada y horaSalida
 const mongoose = require('mongoose');
 
 const calendarioTrabajadorSchema = new mongoose.Schema({
@@ -19,12 +20,13 @@ const calendarioTrabajadorSchema = new mongoose.Schema({
       tipo: {
         type: String,
         required: true
-      }
+      },
+      horaEntrada: String, // ✅ Nuevo campo opcional
+      horaSalida: String   // ✅ Nuevo campo opcional
     }
   ]
 });
 
-// 🔐 Índice compuesto para evitar duplicados por trabajador y año
 calendarioTrabajadorSchema.index({ trabajador: 1, anio: 1 }, { unique: true });
 
 module.exports = mongoose.model('CalendarioTrabajador', calendarioTrabajadorSchema);
