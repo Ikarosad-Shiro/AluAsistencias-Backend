@@ -17,24 +17,27 @@ router.get('/:trabajador/:anio', authMiddleware, async (req, res) => {
 
 // 📌 Crear o actualizar días especiales del trabajador
 router.post('/', authMiddleware, async (req, res) => {
-  try {
-    const { trabajador, anio, diasEspeciales } = req.body;
-
-    let calendario = await CalendarioTrabajador.findOne({ trabajador, anio });
-
-    if (!calendario) {
-      calendario = new CalendarioTrabajador({ trabajador, anio, diasEspeciales });
-    } else {
-      calendario.diasEspeciales = diasEspeciales; // Sobreescribir completamente
+    try {
+      const { trabajador, anio, diasEspeciales } = req.body;
+  
+      // 🔥 Asegurarte de que sea ObjectId
+      const trabajadorObjectId = mongoose.Types.ObjectId(trabajador);
+  
+      let calendario = await CalendarioTrabajador.findOne({ trabajador: trabajadorObjectId, anio });
+  
+      if (!calendario) {
+        calendario = new CalendarioTrabajador({ trabajador: trabajadorObjectId, anio, diasEspeciales });
+      } else {
+        calendario.diasEspeciales = diasEspeciales;
+      }
+  
+      await calendario.save();
+      res.status(200).json({ message: 'Calendario actualizado exitosamente', calendario });
+    } catch (error) {
+      console.error('❌ Error al guardar calendario del trabajador:', error);
+      res.status(500).json({ message: 'Error al guardar calendario del trabajador' });
     }
-
-    await calendario.save();
-    res.status(200).json({ message: 'Calendario actualizado exitosamente', calendario });
-  } catch (error) {
-    console.error('❌ Error al guardar calendario del trabajador:', error);
-    res.status(500).json({ message: 'Error al guardar calendario del trabajador' });
-  }
-});
+  });
 
 // 📌 Eliminar un día especial del calendario del trabajador
 router.put('/:trabajador/:anio', authMiddleware, async (req, res) => {
