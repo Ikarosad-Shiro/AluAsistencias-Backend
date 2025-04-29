@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose'); // ✅ ¡Ahora sí!
 const CalendarioTrabajador = require('../models/CalendarioTrabajador');
 const authMiddleware = require('../middleware/authMiddleware');
 
