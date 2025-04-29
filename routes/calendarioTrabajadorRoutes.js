@@ -26,7 +26,7 @@ router.post('/', authMiddleware, async (req, res) => {
       console.log('anio:', anio);
       console.log('diasEspeciales:', diasEspeciales);
   
-      const trabajadorObjectId = mongoose.Types.ObjectId(trabajador);
+      const trabajadorObjectId = new mongoose.Types.ObjectId(trabajador);
   
       let calendario = await CalendarioTrabajador.findOne({ trabajador: trabajadorObjectId, anio });
   
