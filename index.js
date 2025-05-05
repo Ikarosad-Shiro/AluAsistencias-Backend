@@ -132,6 +132,9 @@ app.use('/api/calendario', require('./routes/calendarioRoutes'));
 // 📌 Calendario de Trabajador (personal)
 app.use('/api/calendario-trabajador', require('./routes/calendarioTrabajadorRoutes'));
 
+//nueva funcion
+app.use('/api/asistencias', require('./routes/asistenciaRoutes'));
+
 // 🛑 Manejo de errores global
 app.use((err, req, res, next) => {
     console.error("❌ Error no manejado:", err);
