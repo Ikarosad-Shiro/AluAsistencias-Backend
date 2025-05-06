@@ -14,6 +14,7 @@ const authRoutes = require("./routes/authRoutes");
 const authMiddleware = require("./middleware/authMiddleware");
 const trabajadoresRoutes = require("./routes/trabajadoresRoutes");
 const sedeRoutes = require('./routes/sedeRoutes');
+const calendarioTrabajadorRoutes = require('./routes/calendarioTrabajadorRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -145,3 +146,6 @@ app.use((err, req, res, next) => {
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🔥 Servidor corriendo en el puerto ${PORT}`);
 });
+
+// Ruta alternativa para solo obtener el calendario actual del trabajador
+app.use('/api/calendario', calendarioTrabajadorRoutes);

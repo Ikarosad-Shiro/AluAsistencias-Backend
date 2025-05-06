@@ -70,4 +70,23 @@ router.put('/:trabajador/:anio', authMiddleware, async (req, res) => {
   }
 });
 
+// Ruta alternativa para solo obtener el calendario actual del trabajador
+router.get('/trabajador/:id', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const anioActual = new Date().getFullYear();
+
+  try {
+    const calendario = await CalendarioTrabajador.findOne({
+      trabajador: new mongoose.Types.ObjectId(id),
+      anio: anioActual
+    });
+
+    res.status(200).json(calendario || null);
+  } catch (error) {
+    console.error('❌ Error en ruta corta /trabajador/:id:', error);
+    res.status(500).json({ message: 'Error al obtener calendario del trabajador' });
+  }
+});
+
+
 module.exports = router;
