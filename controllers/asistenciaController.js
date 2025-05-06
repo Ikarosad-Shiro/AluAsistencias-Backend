@@ -15,6 +15,7 @@ const obtenerReportePorTrabajador = async (req, res) => {
   try {
     const { trabajadorId } = req.params;
     const { inicio, fin } = req.query;
+
     if (!trabajadorId || !inicio || !fin) {
       return res.status(400).json({ message: 'Faltan parámetros: trabajadorId, inicio o fin.' });
     }
@@ -28,26 +29,33 @@ const obtenerReportePorTrabajador = async (req, res) => {
     const fechaFin = new Date(fin);
     fechaFin.setHours(23, 59, 59, 999); // ✅ Incluye hasta el final del día    
 
-    // Obtener eventos del calendario de la sede
+    // 🔥 Obtener asistencias en lote
+    const asistencias = await Asistencia.find({
+      trabajador: trabajador.id,
+      fecha: { $gte: inicio, $lte: fin }
+    });
+
+    // 🔥 Obtener eventos del calendario de sede
     const calendarioSede = await Calendario.findOne({
       anio: fechaInicio.getFullYear(),
       sedes: trabajador.sede
     });
 
-    // Obtener eventos del calendario del trabajador
+    // 🔥 Obtener eventos del calendario del trabajador
     const calendarioTrabajador = await CalendarioTrabajador.findOne({
       trabajador: trabajadorId,
       anio: fechaInicio.getFullYear()
     });
 
-    // Armar reporte día por día
+    // 🔄 Armar reporte día por día
     const resultado = [];
-    for (let d = new Date(fechaInicio); d <= fechaFin; d.setDate(d.getDate() + 1)) {
-      const fechaStr = new Date(d).toISOString().split('T')[0];
 
-      const asistencia = asistencias.find(a => a.fecha.toISOString().startsWith(fechaStr));
-      const eventoSede = calendarioSede?.diasEspeciales?.find(e => e.fecha.toISOString().startsWith(fechaStr));
-      const eventoTrabajador = calendarioTrabajador?.diasEspeciales?.find(e => e.fecha.toISOString().startsWith(fechaStr));
+    for (let d = new Date(fechaInicio); d <= fechaFin; d.setDate(d.getDate() + 1)) {
+      const fechaStr = d.toISOString().split('T')[0];
+
+      const asistencia = asistencias.find(a => a.fecha === fechaStr);
+      const eventoSede = calendarioSede?.diasEspeciales?.find(e => e.fecha.toISOString().split('T')[0] === fechaStr);
+      const eventoTrabajador = calendarioTrabajador?.diasEspeciales?.find(e => e.fecha.toISOString().split('T')[0] === fechaStr);
 
       const entrada = asistencia?.detalle?.find(e => e.tipo === 'Entrada');
       const salida = asistencia?.detalle?.find(e => e.tipo === 'Salida');
