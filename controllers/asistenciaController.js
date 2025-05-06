@@ -15,7 +15,6 @@ const obtenerReportePorTrabajador = async (req, res) => {
   try {
     const { trabajadorId } = req.params;
     const { inicio, fin } = req.query;
-
     if (!trabajadorId || !inicio || !fin) {
       return res.status(400).json({ message: 'Faltan parámetros: trabajadorId, inicio o fin.' });
     }
@@ -29,27 +28,25 @@ const obtenerReportePorTrabajador = async (req, res) => {
     const fechaFin = new Date(fin);
     fechaFin.setHours(23, 59, 59, 999); // ✅ Incluye hasta el final del día    
 
-    // 🔥 Obtener asistencias en lote
+    // 📌 Cargar asistencias una sola vez por rango
     const asistencias = await Asistencia.find({
       trabajador: trabajador.id,
       fecha: { $gte: inicio, $lte: fin }
     });
 
-    // 🔥 Obtener eventos del calendario de sede
+    // 📌 Calendarios
     const calendarioSede = await Calendario.findOne({
       anio: fechaInicio.getFullYear(),
       sedes: trabajador.sede
     });
 
-    // 🔥 Obtener eventos del calendario del trabajador
     const calendarioTrabajador = await CalendarioTrabajador.findOne({
       trabajador: trabajadorId,
       anio: fechaInicio.getFullYear()
     });
 
-    // 🔄 Armar reporte día por día
+    // 📌 Generar reporte día por día
     const resultado = [];
-
     for (let d = new Date(fechaInicio); d <= fechaFin; d.setDate(d.getDate() + 1)) {
       const fechaStr = d.toISOString().split('T')[0];
 
