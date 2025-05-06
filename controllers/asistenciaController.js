@@ -26,12 +26,7 @@ const obtenerReportePorTrabajador = async (req, res) => {
 
     const fechaInicio = new Date(inicio);
     const fechaFin = new Date(fin);
-
-    // Obtener asistencias reales
-    const asistencias = await Asistencia.find({
-      trabajador: trabajadorId,
-      fecha: { $gte: fechaInicio, $lte: fechaFin }
-    });
+    fechaFin.setHours(23, 59, 59, 999); // ✅ Incluye hasta el final del día    
 
     // Obtener eventos del calendario de la sede
     const calendarioSede = await Calendario.findOne({
