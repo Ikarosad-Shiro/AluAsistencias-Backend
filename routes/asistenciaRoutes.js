@@ -4,6 +4,7 @@ const Asistencia = require("../models/Asistencia");
 const Trabajador = require("../models/Trabajador");
 const Sede = require("../models/Sede");
 const Calendario = require("../models/Calendario");
+const CalendarioTrabajador = require("../models/CalendarioTrabajador"); // Añade esta línea
 
 const router = express.Router();
 
