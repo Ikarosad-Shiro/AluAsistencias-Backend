@@ -52,71 +52,104 @@ router.post("/registrar", async (req, res) => {
   }
 });
 
-// 📌 Reporte por trabajador
+// En el backend (routes/asistencias.js)
 router.get("/reporte/trabajador/:id", async (req, res) => {
   try {
     const trabajadorId = req.params.id;
     const { inicio, fin } = req.query;
 
     if (!inicio || !fin) {
-      return res.status(400).json({ message: "Debes proporcionar 'inicio' y 'fin' en el query." });
+      return res.status(400).json({ 
+        message: "Debes proporcionar los parámetros 'inicio' y 'fin' en formato YYYY-MM-DD" 
+      });
     }
 
-    // ✅ Normaliza fechas para evitar errores por zona horaria
-    const fechaInicio = new Date(new Date(inicio).setUTCHours(0, 0, 0, 0));
-    const fechaFin = new Date(new Date(fin).setUTCHours(23, 59, 59, 999));
-    const hoy = new Date().toISOString().split("T")[0];
+    // ✅ Normalizar fechas para consulta (considerar zona horaria)
+    const fechaInicio = new Date(inicio);
+    const fechaFin = new Date(fin);
+    
+    // Ajustar a inicio y fin del día
+    fechaInicio.setUTCHours(0, 0, 0, 0);
+    fechaFin.setUTCHours(23, 59, 59, 999);
 
+    // Verificar existencia del trabajador
     const trabajador = await Trabajador.findById(trabajadorId);
-    if (!trabajador) return res.status(404).json({ message: "Trabajador no encontrado." });
+    if (!trabajador) {
+      return res.status(404).json({ message: "Trabajador no encontrado." });
+    }
 
-    const sedeId = trabajador.sede;
-    const año = fechaInicio.getFullYear();
-
-    const asistencias = await Asistencia.find({
+    // 1. Obtener asistencias REALES en el rango de fechas
+    const asistenciasReales = await Asistencia.find({
       trabajador: trabajadorId,
-      fecha: {
-        $gte: fechaInicio.toISOString().split("T")[0],
-        $lte: fechaFin.toISOString().split("T")[0]
-      }
-    });
+      $or: [
+        // Caso 1: Fecha exacta (formato YYYY-MM-DD)
+        { fecha: { $gte: inicio, $lte: fin } },
+        
+        // Caso 2: Fecha en detalle (formato ISODate)
+        { 
+          "detalle.fechaHora": { 
+            $gte: fechaInicio,
+            $lte: fechaFin
+          }
+        }
+      ]
+    }).lean();
 
-    const calendarioSede = await Calendario.findOne({ sedes: sedeId, anio: año });
-    const calendarioTrabajador = await Calendario.findOne({ trabajador: trabajadorId, anio: año });
+    console.log("🔍 Asistencias encontradas en MongoDB:", asistenciasReales);
 
+    // 2. Obtener calendarios (sede y trabajador)
+    const [calendarioSede, calendarioTrabajador] = await Promise.all([
+      Calendario.findOne({ sedes: trabajador.sede, año: fechaInicio.getFullYear() }),
+      CalendarioTrabajador.findOne({ trabajador: trabajadorId, anio: fechaInicio.getFullYear() })
+    ]);
+
+    // 3. Procesar cada día del rango
     const resultado = [];
-    for (let d = new Date(fechaInicio); d <= fechaFin; d.setDate(d.getDate() + 1)) {
-      const fechaStr = new Date(d).toISOString().split("T")[0];
+    const fechaActual = new Date(fechaInicio);
+    
+    while (fechaActual <= fechaFin) {
+      const fechaStr = fechaActual.toISOString().split('T')[0];
+      
+      // Buscar asistencia REAL para este día
+      const asistenciaDia = asistenciasReales.find(a => 
+        a.fecha === fechaStr || 
+        a.detalle?.some(d => 
+          new Date(d.fechaHora).toISOString().split('T')[0] === fechaStr
+        )
+      );
+      
+      // Buscar eventos
+      const eventoSede = calendarioSede?.diasEspeciales?.find(e => 
+        new Date(e.fecha).toISOString().split('T')[0] === fechaStr
+      );
+      
+      const eventoTrabajador = calendarioTrabajador?.diasEspeciales?.find(e => 
+        new Date(e.fecha).toISOString().split('T')[0] === fechaStr
+      );
 
-      const asistenciaDia = asistencias.find(a => a.fecha === fechaStr);
-      const eventoSede = calendarioSede?.diasEspeciales?.find(e => e.fecha.startsWith(fechaStr));
-      const eventoTrabajador = calendarioTrabajador?.diasEspeciales?.find(e => e.fecha.startsWith(fechaStr));
-
-      const entrada = asistenciaDia?.detalle?.find(x => x.tipo === "Entrada")?.fechaHora || null;
-      const salida = asistenciaDia?.detalle?.find(x => x.tipo === "Salida")?.fechaHora || null;
-
-      let estado = "Falta";
-      if (eventoTrabajador) estado = eventoTrabajador.tipo;
-      else if (eventoSede) estado = eventoSede.tipo;
-      else if (entrada && salida) estado = "Asistencia Completa";
-      else if (entrada && !salida) estado = "Salida Automática";
-      else if (!entrada && !salida && fechaStr === hoy) estado = "Pendiente";
-
-      resultado.push({
+      // Estructura de respuesta
+      const registro = {
         fecha: fechaStr,
-        entrada,
-        salida,
-        eventoSede: eventoSede?.tipo || null,
-        eventoTrabajador: eventoTrabajador?.tipo || null,
-        estado
-      });
+        estado: asistenciaDia?.estado || null,
+        detalle: asistenciaDia?.detalle?.map(d => ({
+          tipo: d.tipo,
+          fechaHora: d.fechaHora,
+          ...(d.salida_automatica && { salida_automatica: true })
+        })) || []
+      };
+
+      resultado.push(registro);
+      fechaActual.setDate(fechaActual.getDate() + 1);
     }
 
     res.json(resultado);
 
   } catch (error) {
     console.error("❌ Error en el reporte:", error);
-    res.status(500).json({ message: "Error al generar reporte.", error });
+    res.status(500).json({ 
+      message: "Error al generar reporte.",
+      error: error.message 
+    });
   }
 });
 
