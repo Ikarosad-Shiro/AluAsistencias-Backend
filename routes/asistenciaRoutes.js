@@ -7,6 +7,7 @@ const Calendario = require("../models/Calendario");
 const CalendarioTrabajador = require("../models/CalendarioTrabajador"); // Añade esta línea
 
 const router = express.Router();
+const { DateTime } = require('luxon'); // Asegúrate de tener luxon instalado: npm install luxon
 
 // 📌 Registrar asistencia desde el servidor local
 router.post("/registrar", async (req, res) => {
@@ -186,12 +187,16 @@ router.get('/unificado/:id', async (req, res) => {
       Calendario.findOne({ sedes: trabajador.sede, año: fechaInicio.getFullYear() })
     ]);
 
-    // 🧼 Asegurar que cada asistencia tenga fechaHora en formato ISO string
+    // 🧼 Formatear cada fechaHora a ISO local México
     const asistenciasFormateadas = asistencias.map(asistencia => ({
       ...asistencia.toObject(),
       detalle: (asistencia.detalle || []).map(d => ({
         ...d,
-        fechaHora: d.fechaHora ? new Date(d.fechaHora).toISOString() : null
+        fechaHora: d.fechaHora
+          ? DateTime.fromJSDate(new Date(d.fechaHora))
+              .setZone('America/Mexico_City')
+              .toISO()
+          : null
       }))
     }));
 
@@ -206,5 +211,6 @@ router.get('/unificado/:id', async (req, res) => {
     res.status(500).json({ message: 'Error interno al obtener datos unificados.' });
   }
 });
+
 
 module.exports = router;
