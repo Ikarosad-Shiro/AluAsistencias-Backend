@@ -186,8 +186,17 @@ router.get('/unificado/:id', async (req, res) => {
       Calendario.findOne({ sedes: trabajador.sede, año: fechaInicio.getFullYear() })
     ]);
 
+    // 🧼 Asegurar que cada asistencia tenga fechaHora en formato ISO string
+    const asistenciasFormateadas = asistencias.map(asistencia => ({
+      ...asistencia.toObject(),
+      detalle: (asistencia.detalle || []).map(d => ({
+        ...d,
+        fechaHora: d.fechaHora ? new Date(d.fechaHora).toISOString() : null
+      }))
+    }));
+
     res.json({
-      asistencias,
+      asistencias: asistenciasFormateadas,
       eventosTrabajador: calendarioTrabajador?.diasEspeciales || [],
       eventosSede: calendarioSede?.diasEspeciales || []
     });
