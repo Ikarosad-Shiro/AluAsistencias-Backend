@@ -154,4 +154,48 @@ router.get("/reporte/trabajador/:id", async (req, res) => {
   }
 });
 
+// 📌 Ruta unificada para PDF y calendario del trabajador
+router.get('/unificado/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { inicio, fin } = req.query;
+
+    if (!inicio || !fin) {
+      return res.status(400).json({ message: "Parámetros 'inicio' y 'fin' requeridos." });
+    }
+
+    const fechaInicio = new Date(inicio);
+    const fechaFin = new Date(fin);
+    fechaFin.setHours(23, 59, 59, 999);
+
+    const trabajador = await Trabajador.findById(id);
+    if (!trabajador) {
+      return res.status(404).json({ message: 'Trabajador no encontrado.' });
+    }
+
+    const [asistencias, calendarioTrabajador, calendarioSede] = await Promise.all([
+      Asistencia.find({
+        trabajador: trabajador.id_checador.toString(),
+        sede: trabajador.sede,
+        $or: [
+          { fecha: { $gte: inicio, $lte: fin } },
+          { "detalle.fechaHora": { $gte: fechaInicio, $lte: fechaFin } }
+        ]
+      }),
+      CalendarioTrabajador.findOne({ trabajador: trabajador._id, anio: fechaInicio.getFullYear() }),
+      Calendario.findOne({ sedes: trabajador.sede, año: fechaInicio.getFullYear() })
+    ]);
+
+    res.json({
+      asistencias,
+      eventosTrabajador: calendarioTrabajador?.diasEspeciales || [],
+      eventosSede: calendarioSede?.diasEspeciales || []
+    });
+
+  } catch (error) {
+    console.error('❌ Error en /unificado:', error);
+    res.status(500).json({ message: 'Error interno al obtener datos unificados.' });
+  }
+});
+
 module.exports = router;
