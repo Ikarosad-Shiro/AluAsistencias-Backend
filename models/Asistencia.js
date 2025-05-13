@@ -24,7 +24,7 @@ const AsistenciaSchema = new mongoose.Schema({
         required: true
       },
       fechaHora: {
-        type: Date,       // Fecha y hora exacta de la marcación
+        type: String,     // ⏰ Se guarda con zona, como string ISO (no Date para evitar desfase)
         required: true
       },
       sincronizado: {
