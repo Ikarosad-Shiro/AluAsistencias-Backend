@@ -187,20 +187,25 @@ router.get('/unificado/:id', async (req, res) => {
       Calendario.findOne({ sedes: trabajador.sede, año: fechaInicio.getFullYear() })
     ]);
 
-    // 🧼 Formatear cada fechaHora a ISO local México
-    const asistenciasFormateadas = asistencias.map(asistencia => ({
-      ...asistencia.toObject(),
-      detalle: Array.isArray(asistencia.detalle)
-      ? asistencia.detalle.map(d => ({
-          ...d,
-          fechaHora: d.fechaHora
-            ? DateTime.fromJSDate(new Date(d.fechaHora))
-                .setZone('America/Mexico_City')
-                .toISO()
-            : null
-        }))
-      : []    
-    }));
+    // 🧼 Formatear y aplanar correctamente cada fechaHora y detalle
+    const asistenciasFormateadas = asistencias.map(asistencia => {
+      const obj = asistencia.toObject();
+      const detallePlano = (obj.detalle || []).map(d => ({
+        tipo: d.tipo,
+        fechaHora: d.fechaHora
+          ? DateTime.fromJSDate(new Date(d.fechaHora))
+              .setZone('America/Mexico_City')
+              .toISO()
+          : null,
+        salida_automatica: d.salida_automatica || false,
+        sincronizado: d.sincronizado || false
+      }));
+
+      return {
+        ...obj,
+        detalle: detallePlano
+      };
+    });
 
     res.json({
       asistencias: asistenciasFormateadas,
@@ -213,6 +218,5 @@ router.get('/unificado/:id', async (req, res) => {
     res.status(500).json({ message: 'Error interno al obtener datos unificados.' });
   }
 });
-
 
 module.exports = router;
