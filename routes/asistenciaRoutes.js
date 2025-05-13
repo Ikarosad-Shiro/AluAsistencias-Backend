@@ -18,10 +18,10 @@ router.post("/registrar", async (req, res) => {
       return res.status(400).json({ message: "Tipo de asistencia inválido." });
     }
 
-    // ✅ Obtener hora local de México con Luxon
-    const { DateTime } = require('luxon');
-    const ahora = DateTime.now().setZone('America/Mexico_City').toJSDate(); // 🕘 Hora con zona MX
-    const fechaStr = DateTime.fromJSDate(ahora).toFormat('yyyy-MM-dd');     // 📆 Solo la fecha
+    // ✅ Hora real de México como string ISO con zona
+    const ahoraLuxon = DateTime.now().setZone('America/Mexico_City');
+    const ahoraISO = ahoraLuxon.toISO(); // ⏰ "2025-05-13T10:00:00-06:00"
+    const fechaStr = ahoraLuxon.toISODate(); // 📅 "2025-05-13"
 
     // ✅ Verificar si ya existe una entrada/salida para hoy
     const existe = await Asistencia.findOne({
@@ -42,7 +42,7 @@ router.post("/registrar", async (req, res) => {
       detalle: [
         {
           tipo,
-          fechaHora: ahora // 🕘 Ya con zona MX
+          fechaHora: ahoraISO // ⏰ Guardamos ISO string con zona incluida
         }
       ]
     });
