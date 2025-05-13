@@ -190,14 +190,16 @@ router.get('/unificado/:id', async (req, res) => {
     // 🧼 Formatear cada fechaHora a ISO local México
     const asistenciasFormateadas = asistencias.map(asistencia => ({
       ...asistencia.toObject(),
-      detalle: (asistencia.detalle || []).map(d => ({
-        ...d,
-        fechaHora: d.fechaHora
-          ? DateTime.fromJSDate(new Date(d.fechaHora))
-              .setZone('America/Mexico_City')
-              .toISO()
-          : null
-      }))
+      detalle: Array.isArray(asistencia.detalle)
+      ? asistencia.detalle.map(d => ({
+          ...d,
+          fechaHora: d.fechaHora
+            ? DateTime.fromJSDate(new Date(d.fechaHora))
+                .setZone('America/Mexico_City')
+                .toISO()
+            : null
+        }))
+      : []    
     }));
 
     res.json({
