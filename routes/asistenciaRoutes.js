@@ -18,9 +18,10 @@ router.post("/registrar", async (req, res) => {
       return res.status(400).json({ message: "Tipo de asistencia inválido." });
     }
 
-    // ✅ Normalizar fecha actual (solo YYYY-MM-DD)
-    const ahora = new Date();
-    const fechaStr = ahora.toISOString().split("T")[0];
+    // ✅ Obtener hora local de México con Luxon
+    const { DateTime } = require('luxon');
+    const ahora = DateTime.now().setZone('America/Mexico_City').toJSDate(); // 🕘 Hora con zona MX
+    const fechaStr = DateTime.fromJSDate(ahora).toFormat('yyyy-MM-dd');     // 📆 Solo la fecha
 
     // ✅ Verificar si ya existe una entrada/salida para hoy
     const existe = await Asistencia.findOne({
@@ -41,7 +42,7 @@ router.post("/registrar", async (req, res) => {
       detalle: [
         {
           tipo,
-          fechaHora: ahora
+          fechaHora: ahora // 🕘 Ya con zona MX
         }
       ]
     });
