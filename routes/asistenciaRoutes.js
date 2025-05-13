@@ -193,10 +193,10 @@ router.get('/unificado/:id', async (req, res) => {
       const detallePlano = (obj.detalle || []).map(d => ({
         tipo: d.tipo,
         fechaHora: d.fechaHora
-        ? DateTime.fromJSDate(new Date(d.fechaHora))
-            .setZone('America/Mexico_City')
-            .toFormat("yyyy-MM-dd'T'HH:mm:ss")
-        : null,
+          ? DateTime.fromJSDate(new Date(d.fechaHora))
+              .setZone('America/Mexico_City')
+              .toFormat("yyyy-MM-dd'T'HH:mm:ss") // ⏰ sin desfase ni offset
+          : null,
         salida_automatica: d.salida_automatica || false,
         sincronizado: d.sincronizado || false
       }));
