@@ -190,16 +190,17 @@ router.get('/unificado/:id', async (req, res) => {
     // 🧼 Formatear y aplanar correctamente cada fechaHora y detalle
     const asistenciasFormateadas = asistencias.map(asistencia => {
       const obj = asistencia.toObject();
-      const detallePlano = (obj.detalle || []).map(d => ({
-        tipo: d.tipo,
-        fechaHora: d.fechaHora
-          ? DateTime.fromJSDate(new Date(d.fechaHora))
-              .setZone('America/Mexico_City')
-              .toFormat("yyyy-MM-dd'T'HH:mm:ss") // ⏰ sin desfase ni offset
-          : null,
-        salida_automatica: d.salida_automatica || false,
-        sincronizado: d.sincronizado || false
-      }));
+      const detallePlano = (obj.detalle || []).map(d => {
+        const fechaHoraUTC = DateTime.fromJSDate(new Date(d.fechaHora), { zone: 'utc' });
+        const fechaHoraMX = fechaHoraUTC.setZone('America/Mexico_City');
+
+        return {
+          tipo: d.tipo,
+          fechaHora: fechaHoraMX.toFormat("yyyy-MM-dd'T'HH:mm:ss"), // 🕓 hora local real
+          salida_automatica: d.salida_automatica || false,
+          sincronizado: d.sincronizado || false
+        };
+      });
 
       return {
         ...obj,
