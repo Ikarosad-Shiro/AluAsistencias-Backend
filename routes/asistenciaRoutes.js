@@ -188,16 +188,15 @@ router.get('/unificado/:id', async (req, res) => {
       Calendario.findOne({ sedes: trabajador.sede, año: fechaInicio.getFullYear() })
     ]);
 
-    // 🧼 Formatear y aplanar correctamente cada fechaHora y detalle
+    // 🧼 Formatear y aplanar correctamente cada fechaHora y detalle con +6h
     const asistenciasFormateadas = asistencias.map(asistencia => {
       const obj = asistencia.toObject();
       const detallePlano = (obj.detalle || []).map(d => {
-        const fechaHoraUTC = DateTime.fromJSDate(new Date(d.fechaHora), { zone: 'utc' });
-        const fechaHoraMX = fechaHoraUTC.setZone('America/Mexico_City');
+        const fechaHoraAjustada = DateTime.fromJSDate(new Date(d.fechaHora)).plus({ hours: 6 });
 
         return {
           tipo: d.tipo,
-          fechaHora: fechaHoraMX.toFormat("yyyy-MM-dd'T'HH:mm:ss"), // 🕓 hora local real
+          fechaHora: fechaHoraAjustada.toFormat("yyyy-MM-dd'T'HH:mm:ss"),
           salida_automatica: d.salida_automatica || false,
           sincronizado: d.sincronizado || false
         };
