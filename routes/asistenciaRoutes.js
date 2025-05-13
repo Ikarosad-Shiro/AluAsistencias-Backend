@@ -193,10 +193,10 @@ router.get('/unificado/:id', async (req, res) => {
       const detallePlano = (obj.detalle || []).map(d => ({
         tipo: d.tipo,
         fechaHora: d.fechaHora
-          ? DateTime.fromJSDate(new Date(d.fechaHora))
-              .setZone('America/Mexico_City')
-              .toISO()
-          : null,
+        ? DateTime.fromJSDate(new Date(d.fechaHora))
+            .setZone('America/Mexico_City')
+            .toISO({ suppressMilliseconds: true, includeOffset: false }) // ⏰ ¡Sin zona ni offset!
+        : null,
         salida_automatica: d.salida_automatica || false,
         sincronizado: d.sincronizado || false
       }));
