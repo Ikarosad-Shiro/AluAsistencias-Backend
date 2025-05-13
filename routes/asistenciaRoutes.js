@@ -193,7 +193,7 @@ router.get('/unificado/:id', async (req, res) => {
       const obj = asistencia.toObject();
     
       const detallePlano = (obj.detalle || []).map(d => {
-        const fechaOriginal = DateTime.fromJSDate(new Date(d.fechaHora)).plus({ hours: 3 }); // ⏰ Sumar 6h reales
+        const fechaOriginal = DateTime.fromJSDate(new Date(d.fechaHora)).plus({ hours: 0 }); // ⏰ Sumar 6h reales
       
         return {
           tipo: d.tipo,
