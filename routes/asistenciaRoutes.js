@@ -195,7 +195,7 @@ router.get('/unificado/:id', async (req, res) => {
         fechaHora: d.fechaHora
         ? DateTime.fromJSDate(new Date(d.fechaHora))
             .setZone('America/Mexico_City')
-            .toISO({ suppressMilliseconds: true, includeOffset: false }) // ⏰ ¡Sin zona ni offset!
+            .toFormat("yyyy-MM-dd'T'HH:mm:ss")
         : null,
         salida_automatica: d.salida_automatica || false,
         sincronizado: d.sincronizado || false
