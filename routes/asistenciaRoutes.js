@@ -191,22 +191,26 @@ router.get('/unificado/:id', async (req, res) => {
     // 🧼 Formatear y aplanar correctamente cada fechaHora y detalle con +6h
     const asistenciasFormateadas = asistencias.map(asistencia => {
       const obj = asistencia.toObject();
+    
       const detallePlano = (obj.detalle || []).map(d => {
-        const fechaHoraAjustada = DateTime.fromJSDate(new Date(d.fechaHora)).plus({ hours: 6 });
-
+        const fechaHoraLuxon = DateTime
+          .fromJSDate(new Date(d.fechaHora))
+          .setZone('America/Mexico_City');
+    
         return {
           tipo: d.tipo,
-          fechaHora: fechaHoraAjustada.toFormat("yyyy-MM-dd'T'HH:mm:ss"),
+          fechaHora: fechaHoraLuxon.toFormat("yyyy-MM-dd'T'HH:mm:ss"), // ⏰ Hora local sin desfase doble
           salida_automatica: d.salida_automatica || false,
           sincronizado: d.sincronizado || false
         };
       });
-
+    
       return {
         ...obj,
         detalle: detallePlano
       };
     });
+    
 
     res.json({
       asistencias: asistenciasFormateadas,
