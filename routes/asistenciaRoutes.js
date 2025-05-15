@@ -222,4 +222,163 @@ router.get('/unificado/:id', async (req, res) => {
   }
 });
 
+// 🆕 Ruta: Obtener asistencias unificadas por sede
+router.get('/unificado-sede/:sedeId', async (req, res) => {
+  try {
+    const { sedeId } = req.params;
+    const { inicio, fin } = req.query;
+
+    if (!inicio || !fin) {
+      return res.status(400).json({ message: "Parámetros 'inicio' y 'fin' requeridos." });
+    }
+
+    const fechaInicio = DateTime.fromISO(inicio).startOf('day');
+    const fechaFin = DateTime.fromISO(fin).endOf('day');
+
+    // 1. Obtener trabajadores de la sede
+    const trabajadores = await Trabajador.find({ sede: sedeId });
+    if (!trabajadores.length) {
+      return res.status(404).json({ message: "No hay trabajadores en esta sede." });
+    }
+
+    // 2. Obtener eventos de sede
+    const calendarioSede = await Calendario.findOne({
+      sedes: sedeId,
+      año: fechaInicio.year
+    });
+
+    const resultados = [];
+
+    // 3. Iterar por cada trabajador
+    for (const trabajador of trabajadores) {
+      // 3.1 Obtener asistencias del trabajador
+      const asistencias = await Asistencia.find({
+        trabajador: trabajador.id_checador.toString(),
+        sede: sedeId,
+        $or: [
+          { fecha: { $gte: inicio, $lte: fin } },
+          { "detalle.fechaHora": { $gte: fechaInicio.toJSDate(), $lte: fechaFin.toJSDate() } }
+        ]
+      }).lean();
+
+      // 3.2 Obtener calendario individual
+      const calendarioTrabajador = await CalendarioTrabajador.findOne({
+        trabajador: trabajador._id,
+        anio: fechaInicio.year
+      });
+
+      // 3.3 Procesar día por día
+      const datosPorDia = {};
+      let fechaCursor = fechaInicio;
+
+      while (fechaCursor <= fechaFin) {
+        const fechaStr = fechaCursor.toISODate();
+
+        // 🎯 Buscar evento del trabajador
+        const eventoTrab = calendarioTrabajador?.diasEspeciales?.find(e => 
+          DateTime.fromJSDate(new Date(e.fecha)).toISODate() === fechaStr
+        );
+
+        // 🎯 Buscar asistencia real
+        const asistencia = asistencias.find(a => 
+          a.fecha === fechaStr ||
+          a.detalle?.some(d =>
+            DateTime.fromJSDate(new Date(d.fechaHora)).toISODate() === fechaStr
+          )
+        );
+
+        // 🎯 Buscar evento general de sede
+        const eventoSede = calendarioSede?.diasEspeciales?.find(e =>
+          DateTime.fromJSDate(new Date(e.fecha)).toISODate() === fechaStr
+        );
+
+        // ⏳ Lógica de jerarquía
+        let entrada = '';
+        let salida = '';
+        let tipoEvento = '';
+
+        if (eventoTrab) {
+          entrada = obtenerEmojiPorTipo(eventoTrab.tipo);
+          tipoEvento = eventoTrab.tipo;
+        } else if (asistencia) {
+          const entradas = asistencia.detalle.filter(d => 
+            DateTime.fromJSDate(new Date(d.fechaHora)).toISODate() === fechaStr &&
+            d.tipo === "Entrada"
+          );
+
+          const salidas = asistencia.detalle.filter(d => 
+            DateTime.fromJSDate(new Date(d.fechaHora)).toISODate() === fechaStr &&
+            d.tipo === "Salida"
+          );
+
+          if (entradas.length > 0) {
+            entrada = DateTime.fromJSDate(new Date(entradas[0].fechaHora))
+              .setZone('America/Mexico_City')
+              .toFormat('hh:mm a');
+          }
+
+          if (salidas.length > 0) {
+            salida = DateTime.fromJSDate(new Date(salidas[0].fechaHora))
+              .setZone('America/Mexico_City')
+              .toFormat('hh:mm a');
+          }
+
+          if (entrada && !salida) salida = '⏳';
+        } else if (eventoSede) {
+          entrada = obtenerEmojiPorTipo(eventoSede.tipo);
+          tipoEvento = eventoSede.tipo;
+        } else {
+          entrada = '—';
+          salida = '—';
+        }
+
+        datosPorDia[fechaStr] = { entrada, salida, tipoEvento };
+        fechaCursor = fechaCursor.plus({ days: 1 });
+      }
+
+      resultados.push({
+        nombre: `${trabajador.nombre} ${trabajador.apellido}`,
+        id: trabajador._id,
+        datosPorDia
+      });
+    }
+
+    res.json({
+      sede: sedeId,
+      rango: { inicio, fin },
+      trabajadores: resultados
+    });
+
+  } catch (error) {
+    console.error('❌ Error en /unificado-sede:', error);
+    res.status(500).json({ message: 'Error al obtener datos por sede.', error });
+  }
+});
+
+// 🔁 Utilidad para emojis
+function obtenerEmojiPorTipo(tipo) {
+  switch (tipo) {
+    case "Vacaciones":
+      return "🌴 Vacaciones";
+    case "Permiso":
+      return "📄 Permiso";
+    case "Permiso con goce de sueldo":
+      return "📄 Permiso (con goce)";
+    case "Incapacidad":
+      return "💊 Incapacidad";
+    case "Falta":
+      return "❌ Falta";
+    case "Home Office":
+      return "🏠 Home Office";
+    case "Media Jornada":
+      return "🕘 Media Jornada";
+    case "Evento":
+      return "📌 Evento";
+    case "Capacitación":
+      return "📚 Capacitación";
+    default:
+      return tipo;
+  }
+}
+
 module.exports = router;
