@@ -337,7 +337,7 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
       }
 
       resultados.push({
-        nombre: `${trabajador.nombre} ${trabajador.apellido}`,
+        nombre: [trabajador.nombre, trabajador.apellido].filter(Boolean).join(' '),
         id: trabajador._id,
         datosPorDia
       });
