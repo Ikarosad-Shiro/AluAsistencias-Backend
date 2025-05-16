@@ -235,13 +235,11 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
     const fechaInicio = DateTime.fromISO(inicio).startOf('day');
     const fechaFin = DateTime.fromISO(fin).endOf('day');
 
-    // 1. Obtener trabajadores de la sede
     const trabajadores = await Trabajador.find({ sede: sedeId });
     if (!trabajadores.length) {
       return res.status(404).json({ message: "No hay trabajadores en esta sede." });
     }
 
-    // 2. Obtener eventos de sede
     const calendarioSede = await Calendario.findOne({
       sedes: sedeId,
       año: fechaInicio.year
@@ -249,9 +247,7 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
 
     const resultados = [];
 
-    // 3. Iterar por cada trabajador
     for (const trabajador of trabajadores) {
-      // 3.1 Obtener asistencias del trabajador
       const asistencias = await Asistencia.find({
         trabajador: trabajador.id_checador.toString(),
         sede: sedeId,
@@ -261,38 +257,32 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
         ]
       }).lean();
 
-      // 3.2 Obtener calendario individual
       const calendarioTrabajador = await CalendarioTrabajador.findOne({
         trabajador: trabajador._id,
         anio: fechaInicio.year
       });
 
-      // 3.3 Procesar día por día
       const datosPorDia = {};
       let fechaCursor = fechaInicio;
 
       while (fechaCursor <= fechaFin) {
         const fechaStr = fechaCursor.toISODate();
 
-        // 🎯 Buscar evento del trabajador
-        const eventoTrab = calendarioTrabajador?.diasEspeciales?.find(e => 
+        const eventoTrab = calendarioTrabajador?.diasEspeciales?.find(e =>
           DateTime.fromJSDate(new Date(e.fecha)).toISODate() === fechaStr
         );
 
-        // 🎯 Buscar asistencia real
-        const asistencia = asistencias.find(a => 
+        const asistencia = asistencias.find(a =>
           a.fecha === fechaStr ||
           a.detalle?.some(d =>
             DateTime.fromJSDate(new Date(d.fechaHora)).toISODate() === fechaStr
           )
         );
 
-        // 🎯 Buscar evento general de sede
         const eventoSede = calendarioSede?.diasEspeciales?.find(e =>
           DateTime.fromJSDate(new Date(e.fecha)).toISODate() === fechaStr
         );
 
-        // ⏳ Lógica de jerarquía
         let entrada = '';
         let salida = '';
         let tipoEvento = '';
@@ -301,24 +291,24 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
           entrada = obtenerEmojiPorTipo(eventoTrab.tipo);
           tipoEvento = eventoTrab.tipo;
         } else if (asistencia) {
-          const entradas = asistencia.detalle.filter(d => 
+          const entradas = asistencia.detalle.filter(d =>
             DateTime.fromJSDate(new Date(d.fechaHora)).toISODate() === fechaStr &&
             d.tipo === "Entrada"
           );
 
-          const salidas = asistencia.detalle.filter(d => 
+          const salidas = asistencia.detalle.filter(d =>
             DateTime.fromJSDate(new Date(d.fechaHora)).toISODate() === fechaStr &&
             d.tipo === "Salida"
           );
 
           if (entradas.length > 0) {
-            entrada = DateTime.fromJSDate(new Date(entradas[0].fechaHora))
+            entrada = DateTime.fromJSDate(entradas[0].fechaHora)
               .setZone('America/Mexico_City')
               .toFormat('hh:mm a');
           }
 
           if (salidas.length > 0) {
-            salida = DateTime.fromJSDate(new Date(salidas[0].fechaHora))
+            salida = DateTime.fromJSDate(salidas[0].fechaHora)
               .setZone('America/Mexico_City')
               .toFormat('hh:mm a');
           }
