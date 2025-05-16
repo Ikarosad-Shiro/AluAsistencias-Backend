@@ -303,14 +303,16 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
 
           if (entradas.length > 0) {
             entrada = DateTime.fromJSDate(entradas[0].fechaHora)
-              .setZone('America/Mexico_City')
-              .toFormat('hh:mm a');
+            .plus({ hours: 6 }) // ← SUMAMOS AQUÍ
+            .setZone('America/Mexico_City')
+            .toFormat('hh:mm a');          
           }
 
           if (salidas.length > 0) {
             salida = DateTime.fromJSDate(salidas[0].fechaHora)
-              .setZone('America/Mexico_City')
-              .toFormat('hh:mm a');
+            .plus({ hours: 6 }) // ← SUMAMOS AQUÍ
+            .setZone('America/Mexico_City')
+            .toFormat('hh:mm a');          
           }
 
           if (entrada && !salida) salida = '⏳';
