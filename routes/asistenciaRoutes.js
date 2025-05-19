@@ -211,10 +211,11 @@ router.get('/unificado/:id', async (req, res) => {
     
 
     res.json({
-      asistencias: asistenciasFormateadas,
-      eventosTrabajador: calendarioTrabajador?.diasEspeciales || [],
-      eventosSede: calendarioSede?.diasEspeciales || []
-    });
+      sede: sedeId,
+      rango: { inicio, fin },
+      eventosSede: calendarioSede?.diasEspeciales || [],
+      trabajadores: resultados
+    });    
 
   } catch (error) {
     console.error('❌ Error en /unificado:', error);
@@ -331,8 +332,9 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
       resultados.push({
         nombre: [trabajador.nombre, trabajador.apellido].filter(Boolean).join(' '),
         id: trabajador._id,
-        datosPorDia
-      });
+        asistencias,
+        eventosTrabajador: calendarioTrabajador?.diasEspeciales || []
+      });      
     }
 
     res.json({
