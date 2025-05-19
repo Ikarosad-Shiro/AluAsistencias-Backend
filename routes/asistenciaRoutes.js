@@ -211,11 +211,10 @@ router.get('/unificado/:id', async (req, res) => {
     
 
     res.json({
-      sede: sedeId,
-      rango: { inicio, fin },
-      eventosSede: calendarioSede?.diasEspeciales || [],
-      trabajadores: resultados
-    });    
+      asistencias: asistenciasFormateadas,
+      eventosTrabajador: calendarioTrabajador?.diasEspeciales || [],
+      eventosSede: calendarioSede?.diasEspeciales || []
+    });
 
   } catch (error) {
     console.error('❌ Error en /unificado:', error);
@@ -223,7 +222,7 @@ router.get('/unificado/:id', async (req, res) => {
   }
 });
 
-// 🆕 Ruta: Obtener asistencias unificadas por sede
+// 🆕 Ruta: Obtener asistencias unificadas por sede CON jerarquía
 router.get('/unificado-sede/:sedeId', async (req, res) => {
   try {
     const { sedeId } = req.params;
@@ -241,10 +240,7 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
       return res.status(404).json({ message: "No hay trabajadores en esta sede." });
     }
 
-    const calendarioSede = await Calendario.findOne({
-      sedes: sedeId,
-      año: fechaInicio.year
-    });
+    const calendarioSede = await Calendario.findOne({ sedes: sedeId, año: fechaInicio.year });
 
     const resultados = [];
 
@@ -268,73 +264,58 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
 
       while (fechaCursor <= fechaFin) {
         const fechaStr = fechaCursor.toISODate();
+        const diaSemana = fechaCursor.setLocale('es').toFormat('cccc');
+
+        const entradas = asistencias.flatMap(a => a.detalle || []).filter(d =>
+          d.tipo === 'Entrada' && DateTime.fromJSDate(new Date(d.fechaHora)).toISODate() === fechaStr
+        );
+
+        const salidas = asistencias.flatMap(a => a.detalle || []).filter(d =>
+          d.tipo === 'Salida' && DateTime.fromJSDate(new Date(d.fechaHora)).toISODate() === fechaStr
+        );
 
         const eventoTrab = calendarioTrabajador?.diasEspeciales?.find(e =>
           DateTime.fromJSDate(new Date(e.fecha)).toISODate() === fechaStr
-        );
-
-        const asistencia = asistencias.find(a =>
-          a.fecha === fechaStr ||
-          a.detalle?.some(d =>
-            DateTime.fromJSDate(new Date(d.fechaHora)).toISODate() === fechaStr
-          )
         );
 
         const eventoSede = calendarioSede?.diasEspeciales?.find(e =>
           DateTime.fromJSDate(new Date(e.fecha)).toISODate() === fechaStr
         );
 
-        let entrada = '';
-        let salida = '';
-        let tipoEvento = '';
+        let entrada = entradas.length > 0 ? DateTime.fromJSDate(entradas[0].fechaHora).plus({ hours: 6 }).toFormat('hh:mm a') : '';
+        let salida = salidas.length > 0 ? DateTime.fromJSDate(salidas[0].fechaHora).plus({ hours: 6 }).toFormat('hh:mm a') : '';
+
+        // 🧠 Aplicar jerarquía: eventoTrab > asistencia > eventoSede > falta
+        let estado = '';
 
         if (eventoTrab) {
-          entrada = obtenerEmojiPorTipo(eventoTrab.tipo);
-          tipoEvento = eventoTrab.tipo;
-        } else if (asistencia) {
-          const entradas = asistencia.detalle.filter(d =>
-            DateTime.fromJSDate(new Date(d.fechaHora)).toISODate() === fechaStr &&
-            d.tipo === "Entrada"
-          );
-
-          const salidas = asistencia.detalle.filter(d =>
-            DateTime.fromJSDate(new Date(d.fechaHora)).toISODate() === fechaStr &&
-            d.tipo === "Salida"
-          );
-
-          if (entradas.length > 0) {
-            entrada = DateTime.fromJSDate(entradas[0].fechaHora)
-            .plus({ hours: 6 }) // ← SUMAMOS AQUÍ
-            .setZone('America/Mexico_City')
-            .toFormat('hh:mm a');          
-          }
-
-          if (salidas.length > 0) {
-            salida = DateTime.fromJSDate(salidas[0].fechaHora)
-            .plus({ hours: 6 }) // ← SUMAMOS AQUÍ
-            .setZone('America/Mexico_City')
-            .toFormat('hh:mm a');          
-          }
-
-          if (entrada && !salida) salida = '⏳';
+          estado = obtenerEmojiPorTipo(eventoTrab.tipo);
+          entrada = estado;
+          salida = '';
+        } else if (entrada && salida) {
+          estado = '✅ Asistencia Completa';
+        } else if (entrada && !salida) {
+          estado = '⏳ Entrada sin salida';
+          salida = '⏳';
         } else if (eventoSede) {
-          entrada = obtenerEmojiPorTipo(eventoSede.tipo);
-          tipoEvento = eventoSede.tipo;
+          estado = obtenerEmojiPorTipo(eventoSede.tipo);
+          entrada = estado;
+          salida = '';
         } else {
+          estado = '❌ Falta';
           entrada = '—';
           salida = '—';
         }
 
-        datosPorDia[fechaStr] = { entrada, salida, tipoEvento };
+        datosPorDia[fechaStr] = { entrada, salida, estado };
         fechaCursor = fechaCursor.plus({ days: 1 });
       }
 
       resultados.push({
         nombre: [trabajador.nombre, trabajador.apellido].filter(Boolean).join(' '),
         id: trabajador._id,
-        asistencias,
-        eventosTrabajador: calendarioTrabajador?.diasEspeciales || []
-      });      
+        datosPorDia
+      });
     }
 
     res.json({
@@ -349,29 +330,22 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
   }
 });
 
-// 🔁 Utilidad para emojis
 function obtenerEmojiPorTipo(tipo) {
   switch (tipo) {
-    case "Vacaciones":
-      return "🌴 Vacaciones";
-    case "Permiso":
-      return "📄 Permiso";
-    case "Permiso con goce de sueldo":
-      return "📄 Permiso (con goce)";
-    case "Incapacidad":
-      return "💊 Incapacidad";
-    case "Falta":
-      return "❌ Falta";
-    case "Home Office":
-      return "🏠 Home Office";
-    case "Media Jornada":
-      return "🕘 Media Jornada";
-    case "Evento":
-      return "📌 Evento";
-    case "Capacitación":
-      return "📚 Capacitación";
-    default:
-      return tipo;
+    case "Vacaciones": return "🌴 Vacaciones";
+    case "Vacaciones Pagadas": return "💰 Vacaciones Pagadas";
+    case "Permiso": return "📄 Permiso";
+    case "Permiso con goce de sueldo": return "📄 Permiso con Goce";
+    case "Incapacidad": return "🩺 Incapacidad";
+    case "Falta": return "❌ Falta Manual";
+    case "Media Jornada": return "🌓 Media Jornada";
+    case "Evento": return "🎤 Evento";
+    case "Capacitación": return "📚 Capacitación";
+    case "Festivo": return "🎉 Festivo";
+    case "Descanso": return "😴 Descanso";
+    case "Puente": return "🌉 Puente";
+    case "Suspensión": return "🚫 Suspensión";
+    default: return tipo;
   }
 }
 
