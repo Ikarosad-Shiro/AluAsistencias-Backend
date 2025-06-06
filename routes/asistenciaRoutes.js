@@ -289,9 +289,19 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
         let estado = '';
 
         if (eventoTrab) {
-          estado = obtenerEmojiPorTipo(eventoTrab.tipo);
-          entrada = estado;
-          salida = '';
+          if (
+            eventoTrab.tipo.toLowerCase().trim() === 'asistencia' &&
+            eventoTrab.horaEntrada &&
+            eventoTrab.horaSalida
+          ) {
+            estado = '✅ Asistencia Manual';
+            entrada = eventoTrab.horaEntrada;
+            salida = eventoTrab.horaSalida;
+          } else {
+            estado = obtenerEmojiPorTipo(eventoTrab.tipo);
+            entrada = estado;
+            salida = '';
+          }        
         } else if (entrada && salida) {
           estado = '✅ Asistencia Completa';
         } else if (entrada && !salida) {
