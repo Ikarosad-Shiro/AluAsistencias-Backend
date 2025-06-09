@@ -193,7 +193,7 @@ router.get('/unificado/:id', async (req, res) => {
       const obj = asistencia.toObject();
     
       const detallePlano = (obj.detalle || []).map(d => {
-        const fechaOriginal = DateTime.fromJSDate(new Date(d.fechaHora)).setZone('America/Mexico_City');
+        const fechaOriginal = DateTime.fromISO(d.fechaHora, { zone: 'utc' }).setZone('America/Mexico_City');
       
         return {
           tipo: d.tipo,
