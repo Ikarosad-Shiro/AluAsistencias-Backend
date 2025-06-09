@@ -193,20 +193,15 @@ router.get('/unificado/:id', async (req, res) => {
       const obj = asistencia.toObject();
     
       const detallePlano = (obj.detalle || []).map(d => {
-        let fechaOriginal = DateTime.fromISO(d.fechaHora, { zone: 'utc' });
-        if (!fechaOriginal.isValid) {
-          fechaOriginal = DateTime.fromJSDate(new Date(d.fechaHora));
-        }
-        fechaOriginal = fechaOriginal.setZone('America/Mexico_City');
-        
+        const fechaOriginal = DateTime.fromJSDate(new Date(d.fechaHora)).plus({ hours: 0 }); // ⏰ Sumar 6h reales
       
         return {
           tipo: d.tipo,
-          fechaHora: fechaOriginal.toFormat("yyyy-MM-dd'T'HH:mm:ss"),
+          fechaHora: fechaOriginal.toFormat("yyyy-MM-dd'T'HH:mm:ss"), // Hora ya corregida
           salida_automatica: d.salida_automatica || false,
           sincronizado: d.sincronizado || false
         };
-      });           
+      });      
     
       return {
         ...obj,
@@ -287,14 +282,7 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
           DateTime.fromJSDate(new Date(e.fecha)).toISODate() === fechaStr
         );
 
-        let entradaHora = entradas[0]?.fechaHora;
-        let entradaDT = DateTime.fromISO(entradaHora, { zone: 'utc' });
-        if (!entradaDT.isValid) {
-          entradaDT = DateTime.fromJSDate(new Date(entradaHora));
-        }
-        entradaDT = entradaDT.setZone('America/Mexico_City');
-        entrada = entradaDT.toFormat('hh:mm a');
-        
+        let entrada = entradas.length > 0 ? DateTime.fromJSDate(entradas[0].fechaHora).plus({ hours: 6 }).toFormat('hh:mm a') : '';
         let salida = salidas.length > 0 ? DateTime.fromJSDate(salidas[0].fechaHora).plus({ hours: 6 }).toFormat('hh:mm a') : '';
 
         // 🧠 Aplicar jerarquía: eventoTrab > asistencia > eventoSede > falta
