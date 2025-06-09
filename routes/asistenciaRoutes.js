@@ -283,7 +283,7 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
         );
 
         let entrada = entradas.length > 0 ? DateTime.fromJSDate(entradas[0].fechaHora).plus({ hours: 0 }).toFormat('hh:mm a') : '';
-        let salida = salidas.length > 0 ? DateTime.fromJSDate(salidas[0].fechaHora).plus({ hours: 6 }).toFormat('hh:mm a') : '';
+        let salida = salidas.length > 0 ? DateTime.fromJSDate(salidas[0].fechaHora).plus({ hours: 0 }).toFormat('hh:mm a') : '';
 
         // 🧠 Aplicar jerarquía: eventoTrab > asistencia > eventoSede > falta
         let estado = '';
