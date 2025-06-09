@@ -282,7 +282,7 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
           DateTime.fromJSDate(new Date(e.fecha)).toISODate() === fechaStr
         );
 
-        let entrada = entradas.length > 0 ? DateTime.fromJSDate(entradas[0].fechaHora).plus({ hours: 6 }).toFormat('hh:mm a') : '';
+        let entrada = entradas.length > 0 ? DateTime.fromISO(entradas[0].fechaHora, { zone: 'utc' }).setZone('America/Mexico_City').toFormat('hh:mm a') : '';
         let salida = salidas.length > 0 ? DateTime.fromJSDate(salidas[0].fechaHora).plus({ hours: 6 }).toFormat('hh:mm a') : '';
 
         // 🧠 Aplicar jerarquía: eventoTrab > asistencia > eventoSede > falta
