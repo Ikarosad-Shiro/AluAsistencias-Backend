@@ -193,15 +193,15 @@ router.get('/unificado/:id', async (req, res) => {
       const obj = asistencia.toObject();
     
       const detallePlano = (obj.detalle || []).map(d => {
-        const fechaOriginal = DateTime.fromJSDate(new Date(d.fechaHora)).plus({ hours: 0 }); // ⏰ Sumar 6h reales
+        const fechaOriginal = DateTime.fromJSDate(new Date(d.fechaHora)).setZone('America/Mexico_City');
       
         return {
           tipo: d.tipo,
-          fechaHora: fechaOriginal.toFormat("yyyy-MM-dd'T'HH:mm:ss"), // Hora ya corregida
+          fechaHora: fechaOriginal.toFormat("yyyy-MM-dd'T'HH:mm:ss"),
           salida_automatica: d.salida_automatica || false,
           sincronizado: d.sincronizado || false
         };
-      });      
+      });           
     
       return {
         ...obj,
