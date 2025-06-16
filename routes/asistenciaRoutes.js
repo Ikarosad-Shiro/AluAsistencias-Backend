@@ -359,4 +359,28 @@ function obtenerEmojiPorTipo(tipo) {
   }
 }
 
+// Obtener asistencias del día actual
+router.get('/hoy', async (req, res) => {
+  try {
+    const hoy = DateTime.now().setZone('America/Mexico_City').startOf('day');
+    const manana = hoy.plus({ days: 1 });
+
+    const asistencias = await Asistencia.find({
+      fecha: { $gte: hoy.toISO(), $lt: manana.toISO() },
+      estado: { $in: ["Asistencia Completa", "Entrada"] }
+    }).populate('trabajador').populate('sede');
+
+    const resultado = asistencias.map(a => ({
+      id: a.trabajador?._id,
+      nombre: `${a.trabajador?.nombre} ${a.trabajador?.apellido}`,
+      sede: a.sede?.nombre || "Sin sede"
+    }));
+
+    res.json(resultado);
+  } catch (error) {
+    console.error("Error al obtener asistencias de hoy:", error);
+    res.status(500).json({ error: 'Error al obtener las asistencias de hoy' });
+  }
+});
+
 module.exports = router;
