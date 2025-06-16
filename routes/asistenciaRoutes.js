@@ -362,7 +362,7 @@ function obtenerEmojiPorTipo(tipo) {
 // 🆕 Ruta: Trabajadores que llegaron hoy
 router.get('/hoy', async (req, res) => {
   try {
-    const hoy = DateTime.now().setZone('America/Mexico_City').toISODate(); // "2025-06-16"
+    const hoy = DateTime.now().setZone('America/Mexico_City').toISODate(); // 📅 "2025-06-16"
 
     // 1. Obtener asistencias con estado válido y fecha de hoy
     const asistencias = await Asistencia.find({
@@ -370,14 +370,27 @@ router.get('/hoy', async (req, res) => {
       estado: { $in: ["Asistencia Completa", "Pendiente", "Salida Automática"] }
     });
 
-    // 2. Buscar trabajador y sede de cada registro
+    // 2. Buscar trabajador y sede de cada registro + formatear
     const resultado = await Promise.all(asistencias.map(async (a) => {
       const trabajadorDoc = await Trabajador.findOne({ id_checador: a.trabajador });
       const sedeDoc = await Sede.findOne({ id: a.sede });
 
+      const nombreCompleto = [trabajadorDoc?.nombre, trabajadorDoc?.apellido, trabajadorDoc?.segundoApellido]
+        .filter(Boolean)
+        .join(' ');
+
+      // 🕒 Extraer hora de entrada si existe
+      const entrada = a.detalle.find(d =>
+        d.tipo === 'Entrada' || d.tipo === 'Asistencia' || d.tipo === 'Entrada Manual'
+      );
+
+      const horaEntrada = entrada
+        ? DateTime.fromJSDate(new Date(entrada.fechaHora)).setZone('America/Mexico_City').toFormat('HH:mm')
+        : '—';
+
       return {
-        id: trabajadorDoc?._id || a.trabajador,
-        nombre: trabajadorDoc ? `${trabajadorDoc.nombre} ${trabajadorDoc.apellido}` : "Desconocido",
+        nombre: nombreCompleto || "Desconocido",
+        hora: horaEntrada,
         sede: sedeDoc?.nombre || "Sin sede"
       };
     }));
