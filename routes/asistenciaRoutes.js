@@ -359,19 +359,25 @@ function obtenerEmojiPorTipo(tipo) {
   }
 }
 
-// 🆕 Ruta: Trabajadores que llegaron hoy
 router.get('/hoy', async (req, res) => {
   try {
-    const hoy = DateTime.now().setZone('America/Mexico_City').toISODate(); // 📅 "2025-06-16"
+    const hoy = DateTime.now().setZone('America/Mexico_City').toISODate();
 
-    // 1. Obtener asistencias con estado válido y fecha de hoy
+    // 1. Obtener asistencias del día con estado válido
     const asistencias = await Asistencia.find({
       fecha: hoy,
       estado: { $in: ["Asistencia Completa", "Pendiente", "Salida Automática"] }
     });
 
-    // 2. Buscar trabajador y sede de cada registro + formatear
-    const resultado = await Promise.all(asistencias.map(async (a) => {
+    // 2. Filtrar solo si tienen entrada válida
+    const asistenciasFiltradas = asistencias.filter(a =>
+      a.detalle.some(d =>
+        ["Entrada", "Asistencia", "Entrada Manual"].includes(d.tipo)
+      )
+    );
+
+    // 3. Mapear resultados
+    const resultado = await Promise.all(asistenciasFiltradas.map(async (a) => {
       const trabajadorDoc = await Trabajador.findOne({ id_checador: a.trabajador });
       const sedeDoc = await Sede.findOne({ id: a.sede });
 
@@ -379,14 +385,15 @@ router.get('/hoy', async (req, res) => {
         .filter(Boolean)
         .join(' ');
 
-      // 🕒 Extraer hora de entrada si existe
       const entrada = a.detalle.find(d =>
-        d.tipo === 'Entrada' || d.tipo === 'Asistencia' || d.tipo === 'Entrada Manual'
+        ["Entrada", "Asistencia", "Entrada Manual"].includes(d.tipo)
       );
 
       const horaEntrada = entrada
-        ? DateTime.fromJSDate(new Date(entrada.fechaHora)).setZone('America/Mexico_City').toFormat('HH:mm')
-        : '—';
+        ? DateTime.fromJSDate(new Date(entrada.fechaHora))
+            .setZone('America/Mexico_City')
+            .toFormat('HH:mm')
+        : null;
 
       return {
         nombre: nombreCompleto || "Desconocido",
@@ -394,6 +401,15 @@ router.get('/hoy', async (req, res) => {
         sede: sedeDoc?.nombre || "Sin sede"
       };
     }));
+
+    // 4. Ordenar por hora (null va al final)
+    resultado.sort((a, b) => {
+      if (!a.hora) return 1;
+      if (!b.hora) return -1;
+      const [hA, mA] = a.hora.split(':').map(Number);
+      const [hB, mB] = b.hora.split(':').map(Number);
+      return (hA * 60 + mA) - (hB * 60 + mB);
+    });
 
     res.json(resultado);
   } catch (error) {
