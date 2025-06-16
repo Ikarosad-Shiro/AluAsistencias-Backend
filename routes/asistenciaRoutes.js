@@ -366,9 +366,11 @@ router.get('/hoy', async (req, res) => {
     const manana = hoy.plus({ days: 1 });
 
     const asistencias = await Asistencia.find({
-      fecha: { $gte: hoy.toISO(), $lt: manana.toISO() },
-      estado: { $in: ["Asistencia Completa", "Entrada"] }
-    }).populate('trabajador').populate('sede');
+      fecha: { $gte: hoy.toISODate(), $lt: manana.toISODate() },
+      estado: { $in: ["Asistencia Completa", "Pendiente", "Salida Automática"] }
+    })
+    .populate("trabajador")
+    .populate("sede");       
 
     const resultado = asistencias.map(a => ({
       id: a.trabajador?._id,
