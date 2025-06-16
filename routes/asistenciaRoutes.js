@@ -359,28 +359,32 @@ function obtenerEmojiPorTipo(tipo) {
   }
 }
 
-// Obtener asistencias del día actual
+// 🆕 Ruta: Trabajadores que llegaron hoy
 router.get('/hoy', async (req, res) => {
   try {
-    const hoy = DateTime.now().setZone('America/Mexico_City').startOf('day');
-    const manana = hoy.plus({ days: 1 });
+    const hoy = DateTime.now().setZone('America/Mexico_City').toISODate(); // "2025-06-16"
 
+    // 1. Obtener asistencias con estado válido y fecha de hoy
     const asistencias = await Asistencia.find({
-      fecha: { $gte: hoy.toISODate(), $lt: manana.toISODate() },
+      fecha: hoy,
       estado: { $in: ["Asistencia Completa", "Pendiente", "Salida Automática"] }
-    })
-    .populate("trabajador")
-    .populate("sede");       
+    });
 
-    const resultado = asistencias.map(a => ({
-      id: a.trabajador?._id,
-      nombre: `${a.trabajador?.nombre} ${a.trabajador?.apellido}`,
-      sede: a.sede?.nombre || "Sin sede"
+    // 2. Buscar trabajador y sede de cada registro
+    const resultado = await Promise.all(asistencias.map(async (a) => {
+      const trabajadorDoc = await Trabajador.findOne({ id_checador: a.trabajador });
+      const sedeDoc = await Sede.findOne({ id: a.sede });
+
+      return {
+        id: trabajadorDoc?._id || a.trabajador,
+        nombre: trabajadorDoc ? `${trabajadorDoc.nombre} ${trabajadorDoc.apellido}` : "Desconocido",
+        sede: sedeDoc?.nombre || "Sin sede"
+      };
     }));
 
     res.json(resultado);
   } catch (error) {
-    console.error("Error al obtener asistencias de hoy:", error);
+    console.error("❌ Error al obtener asistencias de hoy:", error);
     res.status(500).json({ error: 'Error al obtener las asistencias de hoy' });
   }
 });
