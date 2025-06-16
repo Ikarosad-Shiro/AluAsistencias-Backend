@@ -363,32 +363,38 @@ router.get('/hoy', async (req, res) => {
   try {
     const hoy = DateTime.now().setZone('America/Mexico_City').toISODate();
 
-    // 1. Obtener asistencias del día con estado válido
     const asistencias = await Asistencia.find({
       fecha: hoy,
       estado: { $in: ["Asistencia Completa", "Pendiente", "Salida Automática"] }
     });
 
-    // 2. Filtrar solo si tienen entrada válida
     const asistenciasFiltradas = asistencias.filter(a =>
       a.detalle.some(d =>
         ["Entrada", "Asistencia", "Entrada Manual"].includes(d.tipo)
       )
     );
 
-    // 3. Mapear resultados
     const resultado = await Promise.all(asistenciasFiltradas.map(async (a) => {
-      const trabajadorDoc = await Trabajador.findOne({ id_checador: a.trabajador });
+      // 🔍 Buscar trabajador con sede específica
+      const trabajadorDoc = await Trabajador.findOne({
+        id_checador: a.trabajador,
+        sede: a.sede
+      });
+
+      // 🔍 Buscar sede por ID
       const sedeDoc = await Sede.findOne({ id: a.sede });
 
+      // 🧼 Formatear nombre completo
       const nombreCompleto = [trabajadorDoc?.nombre, trabajadorDoc?.apellido, trabajadorDoc?.segundoApellido]
         .filter(Boolean)
         .join(' ');
 
+      // ⏰ Buscar entrada válida
       const entrada = a.detalle.find(d =>
         ["Entrada", "Asistencia", "Entrada Manual"].includes(d.tipo)
       );
 
+      // ✅ Formatear hora a zona MX
       const horaEntrada = entrada
         ? DateTime.fromJSDate(new Date(entrada.fechaHora))
             .setZone('America/Mexico_City')
@@ -402,7 +408,7 @@ router.get('/hoy', async (req, res) => {
       };
     }));
 
-    // 4. Ordenar por hora (null va al final)
+    // 🧭 Ordenar por hora ascendente
     resultado.sort((a, b) => {
       if (!a.hora) return 1;
       if (!b.hora) return -1;
