@@ -394,12 +394,12 @@ router.get('/hoy', async (req, res) => {
         ["Entrada", "Asistencia", "Entrada Manual"].includes(d.tipo)
       );
 
-      // ✅ Formatear hora a zona MX
       const horaEntrada = entrada
-        ? DateTime.fromJSDate(new Date(entrada.fechaHora))
-            .setZone('America/Mexico_City')
-            .toFormat('HH:mm')
-        : null;
+      ? DateTime.fromJSDate(entrada.fechaHora)
+          .setZone('America/Mexico_City')
+          .toFormat('hh:mm a') // 👈 Formato de 12 horas con AM/PM
+      : null;    
+    
 
       return {
         nombre: nombreCompleto || "Desconocido",
