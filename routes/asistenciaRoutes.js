@@ -394,12 +394,11 @@ router.get('/hoy', async (req, res) => {
         ["Entrada", "Asistencia", "Entrada Manual"].includes(d.tipo)
       );
 
-      const horaEntrada = entrada
-      ? DateTime.fromJSDate(entrada.fechaHora)
+      const horaEntrada = entrada?.fechaHora
+      ? DateTime.fromISO(entrada.fechaHora.toString())
           .setZone('America/Mexico_City')
-          .toFormat('hh:mm a') // 👈 Formato de 12 horas con AM/PM
+          .toFormat('hh:mm a')
       : null;    
-    
 
       return {
         nombre: nombreCompleto || "Desconocido",
