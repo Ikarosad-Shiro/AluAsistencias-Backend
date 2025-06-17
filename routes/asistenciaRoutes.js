@@ -395,10 +395,10 @@ router.get('/hoy', async (req, res) => {
       );
 
       const horaEntrada = entrada?.fechaHora
-      ? DateTime.fromISO(entrada.fechaHora.toString())
+      ? DateTime.fromJSDate(new Date(entrada.fechaHora))
           .setZone('America/Mexico_City')
           .toFormat('hh:mm a')
-      : null;    
+      : null;        
 
       return {
         nombre: nombreCompleto || "Desconocido",
