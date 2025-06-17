@@ -398,9 +398,9 @@ router.get('/hoy', async (req, res) => {
       if (entrada?.fechaHora) {
         try {
           horaEntrada = DateTime
-            .fromISO(new Date(entrada.fechaHora).toISOString(), { zone: 'utc' }) // leer correctamente desde UTC
-            .setZone('America/Mexico_City')
-            .toFormat('hh:mm a');
+          .fromJSDate(new Date(entrada.fechaHora), { zone: 'utc' }) // 👈 le decimos que viene en UTC
+          .setZone('America/Mexico_City') // 👈 convertimos a CDMX
+          .toFormat('hh:mm a');        
         } catch (e) {
           console.error("❌ Error formateando fechaHora:", entrada.fechaHora, e.message);
         }
