@@ -394,11 +394,17 @@ router.get('/hoy', async (req, res) => {
         ["Entrada", "Asistencia", "Entrada Manual"].includes(d.tipo)
       );
 
-      const horaEntrada = entrada?.fechaHora
-      ? DateTime.fromISO(entrada.fechaHora.toISOString(), { zone: 'utc' }) // 📌 forzamos interpretación desde UTC
-          .setZone('America/Mexico_City')
-          .toFormat('hh:mm a')
-      : null;           
+      let horaEntrada = null;
+      if (entrada?.fechaHora) {
+        try {
+          horaEntrada = DateTime
+            .fromISO(new Date(entrada.fechaHora).toISOString(), { zone: 'utc' }) // leer correctamente desde UTC
+            .setZone('America/Mexico_City')
+            .toFormat('hh:mm a');
+        } catch (e) {
+          console.error("❌ Error formateando fechaHora:", entrada.fechaHora, e.message);
+        }
+      }
 
       return {
         nombre: nombreCompleto || "Desconocido",
@@ -419,7 +425,7 @@ router.get('/hoy', async (req, res) => {
     res.json(resultado);
   } catch (error) {
     console.error("❌ Error al obtener asistencias de hoy:", error);
-    res.status(500).json({ error: 'Error al obtener las asistencias de hoy' });
+    res.status(500).json({ error: error.message, stack: error.stack });
   }
 });
 
