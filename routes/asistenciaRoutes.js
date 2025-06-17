@@ -394,13 +394,14 @@ router.get('/hoy', async (req, res) => {
         ["Entrada", "Asistencia", "Entrada Manual"].includes(d.tipo)
       );
 
+      // ⏰ Formatear hora correctamente (sin desfase)
       let horaEntrada = null;
-      if (entrada?.fechaHora) {
+      if (entrada?.fechaHora && typeof entrada.fechaHora.toISOString === 'function') {
         try {
           horaEntrada = DateTime
-          .fromJSDate(new Date(entrada.fechaHora), { zone: 'utc' }) // 👈 le decimos que viene en UTC
-          .setZone('America/Mexico_City') // 👈 convertimos a CDMX
-          .toFormat('hh:mm a');        
+            .fromISO(entrada.fechaHora.toISOString(), { zone: 'utc' }) // leer como UTC
+            .setZone('America/Mexico_City') // convertir a hora CDMX
+            .toFormat('hh:mm a'); // formato 12h
         } catch (e) {
           console.error("❌ Error formateando fechaHora:", entrada.fechaHora, e.message);
         }
