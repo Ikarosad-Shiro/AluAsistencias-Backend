@@ -395,7 +395,7 @@ router.get('/hoy', async (req, res) => {
         try {
           horaEntrada = DateTime
             .fromJSDate(new Date(entrada.fechaHora)) // se interpreta en UTC
-            .plus({ hours: 12 })                      // ✅ ajuste manual para CDMX
+            .plus({ hours: 0 })                      // ✅ ajuste manual para CDMX
             .toFormat('hh:mm a');
         } catch (e) {
           console.error("❌ Error sumando horas:", entrada.fechaHora, e.message);
