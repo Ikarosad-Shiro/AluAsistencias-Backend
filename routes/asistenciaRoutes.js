@@ -396,16 +396,21 @@ router.get('/hoy', async (req, res) => {
 
       // ⏰ Formatear hora correctamente (sin desfase)
       let horaEntrada = null;
-      if (entrada?.fechaHora && typeof entrada.fechaHora.toISOString === 'function') {
+
+      if (entrada?.fechaHora) {
         try {
+          const fecha = entrada.fechaHora instanceof Date
+            ? entrada.fechaHora
+            : new Date(entrada.fechaHora);
+      
           horaEntrada = DateTime
-            .fromISO(entrada.fechaHora.toISOString(), { zone: 'utc' }) // leer como UTC
-            .setZone('America/Mexico_City') // convertir a hora CDMX
-            .toFormat('hh:mm a'); // formato 12h
+            .fromISO(fecha.toISOString(), { zone: 'utc' }) // leer UTC
+            .setZone('America/Mexico_City')                // convertir a CDMX
+            .toFormat('hh:mm a');                          // formato 12h
         } catch (e) {
           console.error("❌ Error formateando fechaHora:", entrada.fechaHora, e.message);
         }
-      }
+      }      
 
       return {
         nombre: nombreCompleto || "Desconocido",
