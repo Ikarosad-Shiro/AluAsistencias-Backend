@@ -394,23 +394,18 @@ router.get('/hoy', async (req, res) => {
         ["Entrada", "Asistencia", "Entrada Manual"].includes(d.tipo)
       );
 
-      // ⏰ Formatear hora correctamente (sin desfase)
+      // 💡 Conversión elegante: UTC → CDMX con Luxon
       let horaEntrada = null;
-
       if (entrada?.fechaHora) {
         try {
-          const fecha = entrada.fechaHora instanceof Date
-            ? entrada.fechaHora
-            : new Date(entrada.fechaHora);
-      
           horaEntrada = DateTime
-            .fromISO(fecha.toISOString(), { zone: 'utc' }) // leer UTC
-            .setZone('America/Mexico_City')                // convertir a CDMX
-            .toFormat('hh:mm a');                          // formato 12h
+            .fromJSDate(new Date(entrada.fechaHora), { zone: 'utc' }) // forzamos lectura UTC
+            .setZone('America/Mexico_City')                           // convertimos a CDMX
+            .toFormat('hh:mm a');                                     // formato amigable
         } catch (e) {
           console.error("❌ Error formateando fechaHora:", entrada.fechaHora, e.message);
         }
-      }      
+      }
 
       return {
         nombre: nombreCompleto || "Desconocido",
