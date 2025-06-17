@@ -395,10 +395,10 @@ router.get('/hoy', async (req, res) => {
       );
 
       const horaEntrada = entrada?.fechaHora
-      ? DateTime.fromJSDate(new Date(entrada.fechaHora))
+      ? DateTime.fromISO(entrada.fechaHora.toISOString(), { zone: 'utc' }) // 📌 forzamos interpretación desde UTC
           .setZone('America/Mexico_City')
           .toFormat('hh:mm a')
-      : null;        
+      : null;           
 
       return {
         nombre: nombreCompleto || "Desconocido",
