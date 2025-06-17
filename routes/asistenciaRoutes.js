@@ -403,6 +403,7 @@ router.get('/hoy', async (req, res) => {
       }
 
       return {
+        _id: trabajadorDoc?._id, // 👈 esto es lo que faltaba
         nombre: nombreCompleto || "Desconocido",
         hora: horaEntrada,
         sede: sedeDoc?.nombre || "Sin sede"
