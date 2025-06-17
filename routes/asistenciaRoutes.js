@@ -375,35 +375,30 @@ router.get('/hoy', async (req, res) => {
     );
 
     const resultado = await Promise.all(asistenciasFiltradas.map(async (a) => {
-      // 🔍 Buscar trabajador con sede específica
       const trabajadorDoc = await Trabajador.findOne({
         id_checador: a.trabajador,
         sede: a.sede
       });
 
-      // 🔍 Buscar sede por ID
       const sedeDoc = await Sede.findOne({ id: a.sede });
 
-      // 🧼 Formatear nombre completo
       const nombreCompleto = [trabajadorDoc?.nombre, trabajadorDoc?.apellido, trabajadorDoc?.segundoApellido]
         .filter(Boolean)
         .join(' ');
 
-      // ⏰ Buscar entrada válida
       const entrada = a.detalle.find(d =>
         ["Entrada", "Asistencia", "Entrada Manual"].includes(d.tipo)
       );
 
-      // 💡 Conversión elegante: UTC → CDMX con Luxon
       let horaEntrada = null;
       if (entrada?.fechaHora) {
         try {
           horaEntrada = DateTime
-            .fromJSDate(new Date(entrada.fechaHora), { zone: 'utc' }) // forzamos lectura UTC
-            .setZone('America/Mexico_City')                           // convertimos a CDMX
-            .toFormat('hh:mm a');                                     // formato amigable
+            .fromJSDate(new Date(entrada.fechaHora)) // se interpreta en UTC
+            .plus({ hours: 6 })                      // ✅ ajuste manual para CDMX
+            .toFormat('hh:mm a');
         } catch (e) {
-          console.error("❌ Error formateando fechaHora:", entrada.fechaHora, e.message);
+          console.error("❌ Error sumando horas:", entrada.fechaHora, e.message);
         }
       }
 
@@ -414,7 +409,6 @@ router.get('/hoy', async (req, res) => {
       };
     }));
 
-    // 🧭 Ordenar por hora ascendente
     resultado.sort((a, b) => {
       if (!a.hora) return 1;
       if (!b.hora) return -1;
