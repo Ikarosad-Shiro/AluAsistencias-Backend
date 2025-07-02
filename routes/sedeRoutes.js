@@ -27,8 +27,13 @@ router.post('/agregar', async (req, res) => {
 });
 
 // 📋 Obtener todas las sedes
+// 📋 Obtener todas las sedes
+const verificarSedesAEliminar = require('../utils/verificarSedesAEliminar');
+
 router.get('/todas', async (req, res) => {
   try {
+    await verificarSedesAEliminar(); // 🧠 Verifica cada vez que alguien consulta sedes
+
     const sedes = await Sede.find().sort({ id: 1 });
     res.json(sedes);
   } catch (error) {
