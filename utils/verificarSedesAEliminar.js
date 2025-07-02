@@ -1,5 +1,6 @@
 // utils/verificarSedesAEliminar.js
 const Sede = require('../models/Sede');
+const Trabajador = require('../models/Trabajador'); // 👈 Importa el modelo
 
 async function verificarSedesAEliminar() {
   try {
@@ -16,12 +17,32 @@ async function verificarSedesAEliminar() {
       console.log(`🔎 Verificando sedes para eliminar: ${sedesParaEliminar.length}`);
 
       for (const sede of sedesParaEliminar) {
-        // Aquí en Fase 2 también se desactivarán trabajadores
-        console.log(`🗑️ Eliminando sede: ${sede.nombre}`);
-        await Sede.deleteOne({ _id: sede._id });
-      }
+        console.log(`🗑️ Procesando eliminación de sede: ${sede.nombre}`);
 
-      console.log(`✅ Sedes eliminadas: ${sedesParaEliminar.length}`);
+        // 🔁 Buscar trabajadores asociados
+        const trabajadores = await Trabajador.find({ sede: sede.id });
+
+        for (const trabajador of trabajadores) {
+          // Guardar historial y desactivar
+          trabajador.estado = 'inactivo';
+          trabajador.historialSedes = trabajador.historialSedes || [];
+
+          trabajador.historialSedes.push({
+            idSede: sede.id,
+            nombre: sede.nombre,
+            fechaFin: hoy
+          });
+
+          trabajador.sede = null; // 👈 Desasignar sede actual
+
+          await trabajador.save();
+        }
+
+        // ✅ Ahora sí eliminar la sede
+        await Sede.deleteOne({ _id: sede._id });
+
+        console.log(`✅ Sede ${sede.nombre} eliminada y ${trabajadores.length} trabajadores actualizados.`);
+      }
     } else {
       console.log('📭 No hay sedes pendientes por eliminar.');
     }

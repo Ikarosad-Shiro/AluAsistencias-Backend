@@ -9,7 +9,9 @@ const TrabajadorSchema = new mongoose.Schema({
     telefono: { type: String, default: '' }, // 🆕 Nuevo campo
     telefonoEmergencia: { type: String, default: '' }, // 🆕 Nuevo campo
     direccion: { type: String, default: '' }, // 🆕 Nuevo campo
-    puesto: { type: String, default: '' } // 🆕 Nuevo campo
+    puesto: { type: String, default: '' }, // 🆕 Nuevo campo
+    estado: { type: String, enum: ["activo", "inactivo"], default: "activo" },
+    historialSedes: [{ idSede: String, nombre: String, fechaInicio: Date, fechaFin: Date }]
 });
 
 module.exports = mongoose.model('Trabajador', TrabajadorSchema, 'trabajadores');
