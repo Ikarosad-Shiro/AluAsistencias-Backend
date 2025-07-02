@@ -8,22 +8,24 @@ async function verificarSedesAEliminar() {
     const hace15Dias = new Date();
     hace15Dias.setDate(hoy.getDate() - 15);
 
+    console.log('🧠 Ejecutando verificación de sedes...');
+    console.log('📅 Hoy es:', hoy.toISOString());
+    console.log('📅 Se eliminarán sedes marcadas antes de:', hace15Dias.toISOString());
+
     const sedesParaEliminar = await Sede.find({
       estado: 'eliminacion_pendiente',
       fechaEliminacionIniciada: { $lte: hace15Dias }
     });
 
-    if (sedesParaEliminar.length > 0) {
-      console.log(`🔎 Verificando sedes para eliminar: ${sedesParaEliminar.length}`);
+    console.log(`🔍 Sedes encontradas con eliminación_pendiente + fecha válida: ${sedesParaEliminar.length}`);
 
+    if (sedesParaEliminar.length > 0) {
       for (const sede of sedesParaEliminar) {
         console.log(`🗑️ Procesando eliminación de sede: ${sede.nombre}`);
 
-        // 🔁 Buscar trabajadores asociados
         const trabajadores = await Trabajador.find({ sede: sede.id });
 
         for (const trabajador of trabajadores) {
-          // Guardar historial y desactivar
           trabajador.estado = 'inactivo';
           trabajador.historialSedes = trabajador.historialSedes || [];
 
@@ -33,18 +35,17 @@ async function verificarSedesAEliminar() {
             fechaFin: hoy
           });
 
-          trabajador.sede = null; // 👈 Desasignar sede actual
+          trabajador.sede = null;
 
           await trabajador.save();
         }
 
-        // ✅ Ahora sí eliminar la sede
         await Sede.deleteOne({ _id: sede._id });
 
         console.log(`✅ Sede ${sede.nombre} eliminada y ${trabajadores.length} trabajadores actualizados.`);
       }
     } else {
-      console.log('📭 No hay sedes pendientes por eliminar.');
+      console.log('📭 No hay sedes para eliminar en este momento.');
     }
   } catch (error) {
     console.error('❌ Error al verificar sedes para eliminar:', error);
