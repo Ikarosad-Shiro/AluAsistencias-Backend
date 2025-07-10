@@ -30,15 +30,15 @@ const agregarTrabajador = async (req, res) => {
             return res.status(400).json({ message: "Sede inválida" });
         }
 
-        // 📌 2️⃣ Obtener el último id_checador asignado en la sede seleccionada
-        const ultimoTrabajador = await Trabajador.findOne({ sede: sedeNumero })
-            .sort({ id_checador: -1 }) // Ordenar de mayor a menor
+        // ✅ Nuevo sistema: obtener el último id_checador de forma global
+        const ultimoTrabajadorGlobal = await Trabajador.findOne()
+            .sort({ id_checador: -1 }) // 🔝 Ordenar globalmente por ID
             .select("id_checador");
 
-        // 📌 3️⃣ Determinar el siguiente ID disponible
-        const nuevoIdChecador = ultimoTrabajador && !isNaN(ultimoTrabajador.id_checador) 
-            ? ultimoTrabajador.id_checador + 1 
-            : 21;
+        const nuevoIdChecador = (ultimoTrabajadorGlobal && !isNaN(ultimoTrabajadorGlobal.id_checador))
+            ? ultimoTrabajadorGlobal.id_checador + 1
+            : 100; // 🚀 Empezamos en 100 si no hay nadie
+
 
         // 📌 4️⃣ Crear el nuevo trabajador con el ID asignado
         const nuevoTrabajador = new Trabajador({

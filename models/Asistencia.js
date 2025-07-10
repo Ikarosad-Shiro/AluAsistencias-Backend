@@ -19,12 +19,16 @@ const AsistenciaSchema = new mongoose.Schema({
   },
   detalle: [
     {
+      trabajador: {
+        type: String,    // ← ¡Agrega esto!
+        required: true
+      },
       tipo: {
-        type: String,     // 'Entrada', 'Salida', etc.
+        type: String,
         required: true
       },
       fechaHora: {
-        type: String,     // ⏰ Se guarda con zona, como string ISO (no Date para evitar desfase)
+        type: String,
         required: true
       },
       sincronizado: {
@@ -36,7 +40,7 @@ const AsistenciaSchema = new mongoose.Schema({
         default: false
       }
     }
-  ]
+  ]  
 });
 
 module.exports = mongoose.model('Asistencia', AsistenciaSchema, 'asistencias');
