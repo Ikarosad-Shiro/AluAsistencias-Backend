@@ -7,7 +7,7 @@ const Asistencia = require('../models/Asistencia'); // 📌 Asegúrate de tener 
 // 🔥 Obtener todos los trabajadores
 const obtenerTrabajadores = async (req, res) => {
     try {
-        const trabajadores = await Trabajador.find({}, '_id nombre sede id_checador sincronizado'); // Incluir id_checador
+        const trabajadores = await Trabajador.find({}, '_id nombre sede id_checador sincronizado estado'); // Incluir id_checador
         res.status(200).json(trabajadores);
     } catch (error) {
         console.error("❌ Error al obtener trabajadores:", error);
