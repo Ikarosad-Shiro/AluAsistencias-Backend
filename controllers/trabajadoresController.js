@@ -111,27 +111,49 @@ const obtenerTrabajadorPorId = async (req, res) => {
     }
 };
 
+// 🔄 Actualizar un trabajador (incluye sede, estado, sincronizado, historial, etc.)
 const actualizarTrabajador = async (req, res) => {
     try {
-        const { id } = req.params;
-        const { nombre, sede, correo, telefono, telefonoEmergencia, direccion, puesto } = req.body;
-
-        const trabajadorActualizado = await Trabajador.findByIdAndUpdate(
-            id,
-            { nombre, sede, correo, telefono, telefonoEmergencia, direccion, puesto },
-            { new: true }
-        );        
-
-        if (!trabajadorActualizado) {
-            return res.status(404).json({ message: 'Trabajador no encontrado' });
-        }
-
-        res.status(200).json(trabajadorActualizado);
+      const { id } = req.params;
+      const {
+        nombre,
+        sede,
+        correo,
+        telefono,
+        telefonoEmergencia,
+        direccion,
+        puesto,
+        estado, // ✅ Nuevos campos aceptados
+        sincronizado,
+        historialSedes
+      } = req.body;
+  
+      const trabajadorActualizado = await Trabajador.findByIdAndUpdate(
+        id,
+        { nombre,
+          sede,
+          correo,
+          telefono,
+          telefonoEmergencia,
+          direccion,
+          puesto,
+          estado,
+          sincronizado,
+          historialSedes
+        },
+        { new: true }
+      );
+  
+      if (!trabajadorActualizado) {
+        return res.status(404).json({ message: 'Trabajador no encontrado' });
+      }
+  
+      res.status(200).json(trabajadorActualizado);
     } catch (error) {
-        console.error('❌ Error al actualizar trabajador:', error);
-        res.status(500).json({ message: 'Error al actualizar trabajador' });
+      console.error('❌ Error al actualizar trabajador:', error);
+      res.status(500).json({ message: 'Error al actualizar trabajador' });
     }
-};
+  };  
 
 // 🔥 Obtener asistencias de un trabajador específico usando id_checador y sede
 const obtenerAsistencias = async (req, res) => {
