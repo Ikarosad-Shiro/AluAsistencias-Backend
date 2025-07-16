@@ -2,6 +2,7 @@ const Trabajador = require('../models/Trabajador'); // Modelo de Trabajador
 const bcrypt = require('bcryptjs');
 const User = require('../models/User'); // Modelo de Usuario para verificación de contraseña
 const Asistencia = require('../models/Asistencia'); // 📌 Asegúrate de tener el modelo Asistencia
+const Sede = require('../models/Sede');
 
 // 🔥 Obtener todos los trabajadores
 const obtenerTrabajadores = async (req, res) => {
