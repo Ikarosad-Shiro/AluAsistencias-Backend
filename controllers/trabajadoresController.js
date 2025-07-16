@@ -3,7 +3,6 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User'); // Modelo de Usuario para verificación de contraseña
 const Asistencia = require('../models/Asistencia'); // 📌 Asegúrate de tener el modelo Asistencia
 
-
 // 🔥 Obtener todos los trabajadores
 const obtenerTrabajadores = async (req, res) => {
     try {
@@ -18,45 +17,55 @@ const obtenerTrabajadores = async (req, res) => {
 // 🔥 Agregar un nuevo trabajador con ID de checador único y consecutivo
 const agregarTrabajador = async (req, res) => {
     try {
-        const { nombre, sede } = req.body;
-
-        if (!nombre || !sede) {
-            return res.status(400).json({ message: "Nombre y sede son requeridos" });
-        }
-
-        // 📌 1️⃣ Convertir sede a número (Evitar valores incorrectos)
-        const sedeNumero = Number(sede);
-        if (isNaN(sedeNumero)) {
-            return res.status(400).json({ message: "Sede inválida" });
-        }
-
-        // ✅ Nuevo sistema: obtener el último id_checador de forma global
-        const ultimoTrabajadorGlobal = await Trabajador.findOne()
-            .sort({ id_checador: -1 }) // 🔝 Ordenar globalmente por ID
-            .select("id_checador");
-
-        const nuevoIdChecador = (ultimoTrabajadorGlobal && !isNaN(ultimoTrabajadorGlobal.id_checador))
-            ? ultimoTrabajadorGlobal.id_checador + 1
-            : 100; // 🚀 Empezamos en 100 si no hay nadie
-
-
-        // 📌 4️⃣ Crear el nuevo trabajador con el ID asignado
-        const nuevoTrabajador = new Trabajador({
-            nombre,
-            sede: sedeNumero,
-            id_checador: nuevoIdChecador, // ✅ ID único dentro de la sede
-            sincronizado: false
-        });
-
-        // 📌 5️⃣ Guardar en MongoDB
-        await nuevoTrabajador.save();
-        res.status(201).json({ message: "Trabajador agregado correctamente", trabajador: nuevoTrabajador });
-
+      const { nombre, sede } = req.body;
+  
+      if (!nombre || !sede) {
+        return res.status(400).json({ message: "Nombre y sede son requeridos" });
+      }
+  
+      const sedeNumero = Number(sede);
+      if (isNaN(sedeNumero)) {
+        return res.status(400).json({ message: "Sede inválida" });
+      }
+  
+      // 🧠 Obtener el nombre de la sede para historial
+      const sedeDoc = await Sede.findOne({ id: sedeNumero });
+      const nombreSede = sedeDoc?.nombre || 'Desconocida';
+  
+      // ✅ Buscar último ID global
+      const ultimoTrabajadorGlobal = await Trabajador.findOne()
+        .sort({ id_checador: -1 })
+        .select("id_checador");
+  
+      const nuevoIdChecador = (ultimoTrabajadorGlobal && !isNaN(ultimoTrabajadorGlobal.id_checador))
+        ? ultimoTrabajadorGlobal.id_checador + 1
+        : 100;
+  
+      const ahora = new Date();
+  
+      // 📦 Crear el nuevo trabajador con historial
+      const nuevoTrabajador = new Trabajador({
+        nombre,
+        sede: sedeNumero,
+        id_checador: nuevoIdChecador,
+        sincronizado: false,
+        estado: 'activo',
+        historialSedes: [{
+          idSede: sedeNumero.toString(),
+          nombre: nombreSede,
+          fechaInicio: ahora,
+          fechaFin: null
+        }]
+      });
+  
+      await nuevoTrabajador.save();
+      res.status(201).json({ message: "Trabajador agregado correctamente", trabajador: nuevoTrabajador });
+  
     } catch (error) {
-        console.error("❌ Error al agregar trabajador:", error);
-        res.status(500).json({ message: "Error al agregar trabajador" });
+      console.error("❌ Error al agregar trabajador:", error);
+      res.status(500).json({ message: "Error al agregar trabajador" });
     }
-};
+  };  
 
 // 🔥 Eliminar trabajador por ID
 const eliminarTrabajador = async (req, res) => {
