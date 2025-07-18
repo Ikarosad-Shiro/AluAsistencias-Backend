@@ -25,5 +25,7 @@ router.put('/:id', authMiddleware, trabajadoresController.actualizarTrabajador);
 // 📌 Obtener asistencias de un trabajador específico
 router.get('/:id/asistencias', authMiddleware, trabajadoresController.obtenerAsistencias);
 
+// 📌 Cambiar el estado del trabajdor (Sincronizado <-> Pendiente)
+router.put('/sincronizacion/:id', authMiddleware, trabajadoresController.actualizarEstadoSincronizacion);
 
 module.exports = router;

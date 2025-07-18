@@ -189,13 +189,31 @@ const obtenerAsistencias = async (req, res) => {
     }
 };
 
+const actualizarEstadoSincronizacion = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sincronizado } = req.body;
+
+    const trabajador = await Trabajador.findById(id);
+    if (!trabajador) return res.status(404).json({ message: 'Trabajador no encontrado' });
+
+    trabajador.sincronizado = sincronizado;
+    await trabajador.save();
+
+    res.status(200).json({ message: 'Estado de sincronización actualizado', trabajador });
+  } catch (error) {
+    console.error('❌ Error al actualizar sincronización:', error);
+    res.status(500).json({ message: 'Error al actualizar sincronización' });
+  }
+};
 
 module.exports = { 
     obtenerTrabajadores, 
     agregarTrabajador,
     eliminarTrabajador,
     verificarContraseña,
-    obtenerTrabajadorPorId, // 📌 Exportar la función nueva
+    obtenerTrabajadorPorId,
     actualizarTrabajador,
     obtenerAsistencias,
+    actualizarEstadoSincronizacion,
 };
