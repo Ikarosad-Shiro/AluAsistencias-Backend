@@ -149,3 +149,20 @@ app.listen(PORT, "0.0.0.0", () => {
 
 // Ruta alternativa para solo obtener el calendario actual del trabajador
 app.use('/api/calendario', calendarioTrabajadorRoutes);
+
+
+if (process.env.NODE_ENV === 'production') {
+  const urlFrontend = process.env.FRONTEND_URL;
+
+  if (urlFrontend) {
+    console.log(`💘 Node: “Mi amor vive en ${urlFrontend}”`);
+
+    setInterval(() => {
+      fetch(urlFrontend)
+        .then(res => console.log(`💌 Node visitó a Angular — Status: ${res.status}`))
+        .catch(err => console.error('💔 Node no pudo contactar a Angular:', err));
+    }, 5 * 60 * 1000); // Cada 5 minutos
+  } else {
+    console.warn('⚠️ FRONTEND_URL no está definida en el .env');
+  }
+}
