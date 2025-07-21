@@ -9,48 +9,48 @@ const rateLimit = require("express-rate-limit");
 const bodyParser = require("body-parser");
 const User = require("./models/User");
 
-// 🔥 Importar rutas y middleware
-const authRoutes = require("./routes/authRoutes");
-const authMiddleware = require("./middleware/authMiddleware");
-const trabajadoresRoutes = require("./routes/trabajadoresRoutes");
-const sedeRoutes = require('./routes/sedeRoutes');
-const calendarioTrabajadorRoutes = require('./routes/calendarioTrabajadorRoutes');
-
 const app = express();
 const PORT = process.env.PORT || 10000;
 const MONGO_URI = process.env.MONGO_URI;
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// comunicacion con el Front para mantener el back activo
-const pingRoutes = require('./routes/pingRoutes');
+// 🔥 Importar rutas
+const pingRoutes = require('./routes/pingRoutes'); // Mantener vivo el backend
+const authRoutes = require("./routes/authRoutes");
+const authMiddleware = require("./middleware/authMiddleware");
+const trabajadoresRoutes = require("./routes/trabajadoresRoutes");
+const sedeRoutes = require('./routes/sedeRoutes');
+const calendarioRoutes = require('./routes/calendarioRoutes');
+const calendarioTrabajadorRoutes = require('./routes/calendarioTrabajadorRoutes');
+const asistenciaRoutes = require('./routes/asistenciaRoutes');
 
-// 🌟 Seguridad: Helmet para proteger contra vulnerabilidades comunes
+// ---------------------------
+// 🌟 Seguridad y optimización
+// ---------------------------
 app.use(helmet());
-
-// 🌟 Comprimir respuestas para mejorar el rendimiento
 app.use(compression());
 
-// 🌟 Limitar peticiones para prevenir ataques de fuerza bruta y DDoS
-app.set("trust proxy", 1);  // 🌟 Confía en el proxy de Render
-
+// 🌟 Limitar peticiones para prevenir ataques de fuerza bruta
+app.set("trust proxy", 1);
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,  // 15 minutos
-    max: 100,  // Máximo 100 peticiones por IP cada 15 minutos
+    windowMs: 15 * 60 * 1000, // 15 minutos
+    max: 100,
     message: "⚠️ Demasiadas peticiones. Intenta de nuevo más tarde."
 });
 app.use(limiter);
 
+// ---------------------------
 // 🌍 Middlewares
+// ---------------------------
 app.use(express.json());
 app.use(bodyParser.json());
 
-// 🌟 Configurar CORS con opciones específicas para producción
+// 🌟 Configurar CORS
 const allowedOrigins = [
-    "http://localhost:4200", 
+    "http://localhost:4200",
     "https://alu-asistencias.onrender.com",
     "https://aluasistencias-backend.onrender.com"
 ];
-
 app.use(cors({
     origin: function (origin, callback) {
         if (!origin || allowedOrigins.includes(origin)) {
@@ -64,33 +64,38 @@ app.use(cors({
     credentials: true
 }));
 
-// 🔒 Ocultar el header X-Powered-By para mayor seguridad
-app.disable("x-powered-by");
-
-// 📌 Conexión a MongoDB Atlas con opciones para producción
+// ---------------------------
+// 🔌 Conexión a MongoDB
+// ---------------------------
 mongoose.connect(MONGO_URI)
-.then(() => console.log("✅ Conectado a MongoDB Atlas"))
-.catch(err => console.error("❌ Error conectando a MongoDB:", err));
+    .then(() => console.log("✅ Conectado a MongoDB Atlas"))
+    .catch(err => console.error("❌ Error conectando a MongoDB:", err));
 
-// 📌 Rutas
+// ---------------------------
+// 📌 Rutas API
+// ---------------------------
+app.use('/api', pingRoutes); // 💌 Mantener vivo el backend
 app.use("/api/auth", authRoutes);
 app.use("/api/trabajadores", trabajadoresRoutes);
 app.use('/api/sedes', sedeRoutes);
+app.use('/api/calendario', calendarioRoutes);
+app.use('/api/calendario-trabajador', calendarioTrabajadorRoutes);
+app.use('/api/asistencias', asistenciaRoutes);
 
-//Mantener activo el backend
-app.use('/api', pingRoutes);
-
-// 🛠 Ruta de prueba para verificar que el servidor corre bien
+// ---------------------------
+// 🛠 Rutas de prueba
+// ---------------------------
 app.get("/", (req, res) => {
     res.send("🚀 Backend corriendo correctamente");
 });
 
-// 📌 Ruta protegida
 app.get("/api/protegido", authMiddleware, (req, res) => {
     res.json({ message: "🔒 Acceso permitido", usuario: req.user });
 });
 
-// 🔥 Cron job que se ejecuta todos los días a la medianoche
+// ---------------------------
+// 🔥 Cron Jobs
+// ---------------------------
 cron.schedule("0 0 * * *", async () => {
     try {
         const ahora = new Date();
@@ -98,77 +103,63 @@ cron.schedule("0 0 * * *", async () => {
         // 📌 Eliminar usuarios no verificados en 7 días
         const hace7dias = new Date();
         hace7dias.setDate(ahora.getDate() - 7);
-
         const usuariosNoVerificados = await User.deleteMany({
             verificado: false,
             fechaRegistro: { $lte: hace7dias }
         });
-
         console.log(`🗑️ Usuarios no verificados eliminados: ${usuariosNoVerificados.deletedCount}`);
 
         // 📌 Eliminar usuarios verificados pero inactivos en 30 días
         const hace30dias = new Date();
         hace30dias.setDate(ahora.getDate() - 30);
-
         const usuariosInactivos = await User.deleteMany({
             verificado: true,
             activo: false,
             fechaRegistro: { $lte: hace30dias }
         });
-
         console.log(`🗑️ Usuarios inactivos eliminados: ${usuariosInactivos.deletedCount}`);
-    } catch (error) {
-        console.error("❌ Error en el cron job de eliminación de usuarios:", error);
-    }
 
         // 📌 Eliminar sedes en estado "eliminacion_pendiente" hace más de 15 días
         const hace15Dias = new Date();
         hace15Dias.setDate(ahora.getDate() - 15);
-    
         const sedesEliminadas = await Sede.deleteMany({
-          estado: 'eliminacion_pendiente',
-          fechaEliminacionIniciada: { $lte: hace15Dias }
+            estado: 'eliminacion_pendiente',
+            fechaEliminacionIniciada: { $lte: hace15Dias }
         });
-    
-        console.log(`🏢 Sedes eliminadas permanentemente: ${sedesEliminadas.deletedCount}`);    
+        console.log(`🏢 Sedes eliminadas permanentemente: ${sedesEliminadas.deletedCount}`);
+    } catch (error) {
+        console.error("❌ Error en el cron job de eliminación de usuarios:", error);
+    }
 });
 
-//Ruta del configuracion del calendario
-app.use('/api/calendario', require('./routes/calendarioRoutes'));
+// ---------------------------
+// ❤️ Mantener vivo el Front
+// ---------------------------
+if (process.env.NODE_ENV === 'production') {
+    const urlFrontend = process.env.FRONTEND_URL;
+    if (urlFrontend) {
+        console.log(`💘 Node: “Mi amor vive en ${urlFrontend}”`);
+        setInterval(() => {
+            fetch(urlFrontend)
+                .then(res => console.log(`💌 Node visitó a Angular — Status: ${res.status}`))
+                .catch(err => console.error('💔 Node no pudo contactar a Angular:', err));
+        }, 5 * 60 * 1000); // Cada 5 minutos
+    } else {
+        console.warn('⚠️ FRONTEND_URL no está definida en el .env');
+    }
+}
 
-// 📌 Calendario de Trabajador (personal)
-app.use('/api/calendario-trabajador', require('./routes/calendarioTrabajadorRoutes'));
-
-//nueva funcion
-app.use('/api/asistencias', require('./routes/asistenciaRoutes'));
-
+// ---------------------------
 // 🛑 Manejo de errores global
+// ---------------------------
 app.use((err, req, res, next) => {
     console.error("❌ Error no manejado:", err);
     res.status(500).json({ message: "Error interno del servidor" });
 });
 
-// 🚀 Iniciar el servidor
+// ---------------------------
+// 🚀 Iniciar servidor
+// ---------------------------
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🔥 Servidor corriendo en el puerto ${PORT}`);
 });
-
-// Ruta alternativa para solo obtener el calendario actual del trabajador
-app.use('/api/calendario', calendarioTrabajadorRoutes);
-
-
-if (process.env.NODE_ENV === 'production') {
-  const urlFrontend = process.env.FRONTEND_URL;
-
-  if (urlFrontend) {
-    console.log(`💘 Node: “Mi amor vive en ${urlFrontend}”`);
-
-    setInterval(() => {
-      fetch(urlFrontend)
-        .then(res => console.log(`💌 Node visitó a Angular — Status: ${res.status}`))
-        .catch(err => console.error('💔 Node no pudo contactar a Angular:', err));
-    }, 5 * 60 * 1000); // Cada 5 minutos
-  } else {
-    console.warn('⚠️ FRONTEND_URL no está definida en el .env');
-  }
-}
