@@ -21,6 +21,9 @@ const PORT = process.env.PORT || 10000;
 const MONGO_URI = process.env.MONGO_URI;
 const JWT_SECRET = process.env.JWT_SECRET;
 
+// comunicacion con el Front para mantener el back activo
+const pingRoutes = require('./routes/pingRoutes');
+
 // 🌟 Seguridad: Helmet para proteger contra vulnerabilidades comunes
 app.use(helmet());
 
@@ -166,3 +169,5 @@ if (process.env.NODE_ENV === 'production') {
     console.warn('⚠️ FRONTEND_URL no está definida en el .env');
   }
 }
+
+app.use('/api', pingRoutes);
