@@ -77,6 +77,9 @@ app.use("/api/auth", authRoutes);
 app.use("/api/trabajadores", trabajadoresRoutes);
 app.use('/api/sedes', sedeRoutes);
 
+//Mantener activo el backend
+app.use('/api', pingRoutes);
+
 // 🛠 Ruta de prueba para verificar que el servidor corre bien
 app.get("/", (req, res) => {
     res.send("🚀 Backend corriendo correctamente");
@@ -169,5 +172,3 @@ if (process.env.NODE_ENV === 'production') {
     console.warn('⚠️ FRONTEND_URL no está definida en el .env');
   }
 }
-
-app.use('/api', pingRoutes);
