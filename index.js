@@ -20,6 +20,7 @@ const authRoutes = require("./routes/authRoutes");
 const authMiddleware = require("./middleware/authMiddleware");
 const trabajadoresRoutes = require("./routes/trabajadoresRoutes");
 const sedeRoutes = require('./routes/sedeRoutes');
+const Sede = require('./models/Sede');     // ✅ necesario para el cron
 const calendarioRoutes = require('./routes/calendarioRoutes');
 const calendarioTrabajadorRoutes = require('./routes/calendarioTrabajadorRoutes');
 const asistenciaRoutes = require('./routes/asistenciaRoutes');

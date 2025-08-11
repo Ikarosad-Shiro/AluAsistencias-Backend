@@ -1,37 +1,53 @@
-// ✅ models/Sede.js
+// models/Sede.js
 const mongoose = require('mongoose');
 
-const sedeSchema = new mongoose.Schema({
-  id: {
-    type: Number,
-    required: true,
-    unique: true
-  },
-  nombre: {
+/* ===== Subesquemas para horario base ===== */
+const JornadaSchema = new mongoose.Schema({
+  ini: { type: String, required: true },     // "HH:mm"
+  fin: { type: String, required: true },     // "HH:mm"
+  overnight: { type: Boolean, default: false }
+}, { _id: false });
+
+const ReglaHorarioSchema = new mongoose.Schema({
+  dow: { type: Number, required: true },     // 0..6 (0=Domingo)
+  jornadas: { type: [JornadaSchema], default: [] }
+}, { _id: false });
+
+const HorarioBaseSchema = new mongoose.Schema({
+  desde: { type: Date, required: true },
+  reglas: { type: [ReglaHorarioSchema], default: [] },
+  meta: {
+    version: { type: Number, default: 1 }
+  }
+}, { _id: false });
+
+/* ===== Subesquema para excepciones por fecha ===== */
+const ExcepcionHorarioSchema = new mongoose.Schema({
+  fecha: { type: String, required: true }, // "YYYY-MM-DD"
+  tipo: {
     type: String,
+    enum: ['asistencia','descanso','media_jornada','festivo','evento','suspension','personalizado'],
     required: true
   },
-  direccion: {
-    type: String,
-    default: ''
-  },
-  zona: {
-    type: String,
-    default: ''
-  },
-  responsable: {
-    type: String,
-    default: ''
-  },
-  estado: {
-    type: String,
-    enum: ['activa', 'eliminacion_pendiente'],
-    default: 'activa'
-  },
-  fechaEliminacionIniciada: {
-    type: Date,
-    default: null
-  }
-});
+  descripcion: { type: String, default: '' },
+  horaEntrada: { type: String, default: '' }, // "HH:mm"
+  horaSalida:  { type: String, default: '' }  // "HH:mm"
+}, { timestamps: true });
+
+/* ===== Esquema principal de Sede (tu estructura + nuevos campos) ===== */
+const sedeSchema = new mongoose.Schema({
+  id: { type: Number, required: true, unique: true },
+  nombre: { type: String, required: true },
+  direccion: { type: String, default: '' },
+  zona: { type: String, default: '' },
+  responsable: { type: String, default: '' },
+
+  estado: { type: String, enum: ['activa', 'eliminacion_pendiente'], default: 'activa' },
+  fechaEliminacionIniciada: { type: Date, default: null },
+
+  // ✅ NUEVO: horario base fijo y excepciones por fecha
+  horarioBase: { type: HorarioBaseSchema, default: null },
+  excepciones: { type: [ExcepcionHorarioSchema], default: [] }
+}, { timestamps: true });
 
 module.exports = mongoose.model('Sede', sedeSchema);
