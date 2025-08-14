@@ -94,8 +94,17 @@ router.put('/cancelar-eliminacion/:id', async (req, res) => {
 router.get('/:sedeId/horario-base', auth, sedeCtrl.getHorarioBase);
 router.put('/:sedeId/horario-base', auth, sedeCtrl.setHorarioBase);
 
+/* ===== Excepciones por DÍA ===== */
 router.get('/:sedeId/excepciones', auth, sedeCtrl.listExcepciones);
 router.post('/:sedeId/excepciones', auth, sedeCtrl.createExcepcion);
 router.delete('/:sedeId/excepciones/:excepcionId', auth, sedeCtrl.deleteExcepcion);
+
+// === Excepciones por RANGO ===
+router.get('/:sedeId/excepciones-rango', auth, sedeCtrl.listExcepcionesRango);
+router.post('/:sedeId/excepciones-rango', auth, sedeCtrl.createExcepcionRango);
+router.delete('/:sedeId/excepciones-rango/:rangoId', auth, sedeCtrl.deleteExcepcionRango);
+
+// === Resolver horario aplicable en una fecha ===
+router.get('/:sedeId/horario-aplicable', auth, sedeCtrl.getHorarioAplicable);
 
 module.exports = router;
