@@ -1,6 +1,7 @@
 // models/Sede.js
 const mongoose = require('mongoose');
 
+/* ===== Subesquemas para horario base ===== */
 const JornadaSchema = new mongoose.Schema({
   ini: { type: String, required: true },     // "HH:mm"
   fin: { type: String, required: true },     // "HH:mm"
@@ -8,58 +9,44 @@ const JornadaSchema = new mongoose.Schema({
 }, { _id: false });
 
 const ReglaHorarioSchema = new mongoose.Schema({
-  dow: { type: Number, required: true },     // 0..6 (0=Domingo)
+  // 👇 usamos 0..6 (0=Domingo, 1=Lunes, ... 6=Sábado)
+  dow: { type: Number, required: true, min: 0, max: 6 },
   jornadas: { type: [JornadaSchema], default: [] }
 }, { _id: false });
 
-const HorarioNuevoIngresoSchema = new mongoose.Schema({
+const NuevoIngresoSchema = new mongoose.Schema({
   activo: { type: Boolean, default: false },
-  duracionDias: { type: Number, default: 30 },        // ventana típica
-  aplicarSoloDiasActivosBase: { type: Boolean, default: true }, // respeta días activos del base
-  jornadas: { type: [JornadaSchema], default: [] }     // se aplican igual para cada día activo
+  duracionDias: { type: Number, default: 30, min: 1, max: 180 },
+  aplicarSoloDiasActivosBase: { type: Boolean, default: true },
+  jornadas: { type: [JornadaSchema], default: [] }
 }, { _id: false });
 
 const HorarioBaseSchema = new mongoose.Schema({
   desde: { type: Date, required: true },
   reglas: { type: [ReglaHorarioSchema], default: [] },
-  nuevoIngreso: { type: HorarioNuevoIngresoSchema, default: () => ({}) }, // ⬅️ NUEVO
+  nuevoIngreso: { type: NuevoIngresoSchema, default: () => ({}) },
   meta: {
     version: { type: Number, default: 1 }
   }
 }, { _id: false });
 
-const ExcepcionHorarioSchema = new mongoose.Schema({
-  fecha: { type: String, required: true }, // "YYYY-MM-DD"
-  tipo: {
-    type: String,
-    enum: ['asistencia','descanso','media_jornada','festivo','evento','suspension','personalizado'],
-    required: true
-  },
-  descripcion: { type: String, default: '' },
-  horaEntrada: { type: String, default: '' },
-  horaSalida:  { type: String, default: '' }
-}, { timestamps: true });
-
-const ExcepcionRangoSchema = new mongoose.Schema({
-  desde: { type: String, required: true },
-  hasta: { type: String, required: true },
-  dows: { type: [Number], default: [] },
-  jornadas: { type: [JornadaSchema], required: true },
-  descripcion: { type: String, default: '' }
-}, { timestamps: true });
-
+/* ===== Esquema principal de Sede ===== */
 const sedeSchema = new mongoose.Schema({
   id: { type: Number, required: true, unique: true },
   nombre: { type: String, required: true },
   direccion: { type: String, default: '' },
   zona: { type: String, default: '' },
   responsable: { type: String, default: '' },
+
   estado: { type: String, enum: ['activa', 'eliminacion_pendiente'], default: 'activa' },
   fechaEliminacionIniciada: { type: Date, default: null },
 
-  horarioBase: { type: HorarioBaseSchema, default: null },
-  excepciones: { type: [ExcepcionHorarioSchema], default: [] },
-  excepcionesRango: { type: [ExcepcionRangoSchema], default: [] }
+  // ✅ Sólo el horario base vive aquí
+  horarioBase: { type: HorarioBaseSchema, default: null }
+
+  // ❌ YA NO:
+  // excepciones: [],
+  // excepcionesRango: []
 }, { timestamps: true });
 
 module.exports = mongoose.model('Sede', sedeSchema);

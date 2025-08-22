@@ -8,7 +8,7 @@ const sedeCtrl = require('../controllers/sedeController');      // ✅ importar 
 const verificarSedesAEliminar = require('../utils/verificarSedesAEliminar');
 
 // ➕ Agregar nueva sede
-router.post('/agregar', async (req, res) => {
+router.post('/agregar',auth, async (req, res) => {
   try {
     const { id, nombre, direccion, zona, responsable } = req.body;
     if (!id || !nombre) return res.status(400).json({ message: 'Faltan campos requeridos.' });
@@ -47,7 +47,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // ✏️ Actualizar campos básicos
-router.put('/:id', async (req, res) => {
+router.put('/:id', auth, async (req, res) => {
   try {
     const { direccion, zona, responsable } = req.body;
     const sede = await Sede.findOneAndUpdate(
@@ -63,7 +63,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // 🔥 Marcar sede para eliminación
-router.put('/marcar-eliminacion/:id', async (req, res) => {
+router.put('/marcar-eliminacion/:id', auth, async (req, res) => {
   try {
     const sede = await Sede.findOne({ id: Number(req.params.id) });
     if (!sede) return res.status(404).json({ message: 'Sede no encontrada.' });
@@ -77,7 +77,7 @@ router.put('/marcar-eliminacion/:id', async (req, res) => {
 });
 
 // 🔄 Cancelar eliminación
-router.put('/cancelar-eliminacion/:id', async (req, res) => {
+router.put('/cancelar-eliminacion/:id', auth, async (req, res) => {
   try {
     const sede = await Sede.findOne({ id: Number(req.params.id) });
     if (!sede) return res.status(404).json({ message: 'Sede no encontrada.' });
@@ -90,19 +90,9 @@ router.put('/cancelar-eliminacion/:id', async (req, res) => {
   }
 });
 
-/* ============ NUEVO: Horario base & Excepciones ============ */
+/* ============ NUEVO: Horario base ============ */
 router.get('/:sedeId/horario-base', auth, sedeCtrl.getHorarioBase);
 router.put('/:sedeId/horario-base', auth, sedeCtrl.setHorarioBase);
-
-/* ===== Excepciones por DÍA ===== */
-router.get('/:sedeId/excepciones', auth, sedeCtrl.listExcepciones);
-router.post('/:sedeId/excepciones', auth, sedeCtrl.createExcepcion);
-router.delete('/:sedeId/excepciones/:excepcionId', auth, sedeCtrl.deleteExcepcion);
-
-// === Excepciones por RANGO ===
-router.get('/:sedeId/excepciones-rango', auth, sedeCtrl.listExcepcionesRango);
-router.post('/:sedeId/excepciones-rango', auth, sedeCtrl.createExcepcionRango);
-router.delete('/:sedeId/excepciones-rango/:rangoId', auth, sedeCtrl.deleteExcepcionRango);
 
 // === Resolver horario aplicable en una fecha ===
 router.get('/:sedeId/horario-aplicable', auth, sedeCtrl.getHorarioAplicable);
