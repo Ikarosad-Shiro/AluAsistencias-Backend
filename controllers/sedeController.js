@@ -2,6 +2,20 @@
 const mongoose = require('mongoose');
 const Sede = require('../models/Sede');
 
+const HHMM = /^\d{2}:\d{2}$/;
+const isHHMM = (s) => typeof s === 'string' && HHMM.test(s);
+const timeLt = (a, b) => a < b;
+
+// Normaliza 1..7 → 0..6 y 0..6 → 0..6
+const normalizeDow = (v) => {
+  if (v == null) return null;
+  const n = Number(v);
+  if (Number.isNaN(n)) return null;
+  if (n >= 0 && n <= 6) return n;
+  if (n >= 1 && n <= 7) return n % 7; // 7 → 0
+  return null;
+};
+
 /* ================================
    Helpers de normalización/validación
    ================================ */
@@ -62,60 +76,80 @@ exports.getHorarioBase = async (req, res) => {
 
 exports.setHorarioBase = async (req, res) => {
   try {
-    const sedeId = Number(req.params.sedeId || req.params.id);
-    const sede = await Sede.findOne({ id: sedeId });
+    const sede = await Sede.findOne({ id: Number(req.params.sedeId) });
     if (!sede) return res.status(404).json({ message: 'Sede no encontrada' });
 
-    // Acepta body plano o envuelto en "horarioBase"
-    const raw = (req.body && req.body.horarioBase) ? req.body.horarioBase : (req.body || {});
-    let { desde, reglas } = raw;
+    // Puede venir { horarioBase: {...} } o plano { desde, reglas, nuevoIngreso }
+    const body = req.body?.horarioBase ? req.body.horarioBase : req.body;
+    const { desde, reglas = [], nuevoIngreso } = body || {};
 
     if (!desde || !Array.isArray(reglas)) {
       return res.status(400).json({ message: 'desde y reglas son obligatorios' });
     }
 
-    const desdeDate = normalizeDesde(desde);
-    if (!desdeDate) return res.status(400).json({ message: 'desde inválido' });
+    const desdeDate = new Date(desde);
+    if (Number.isNaN(desdeDate.getTime())) {
+      return res.status(400).json({ message: 'desde inválido' });
+    }
 
-    const reglasNorm = [];
+    // ---- Normalizar reglas base (descartar días inactivos/vacíos)
+    const mapByDow = new Map();
     for (const r of reglas) {
       const dow = normalizeDow(r.dow);
-      if (dow === null) {
-        return res.status(400).json({ message: 'dow inválido (usa 0..6 o 1..7)', detalle: r.dow });
-      }
+      if (dow === null) return res.status(400).json({ message: 'dow inválido', detalle: r.dow });
 
-      const jornadas = (r.jornadas || []).map(j => ({
-        ini: to24h(j.ini),
-        fin: to24h(j.fin),
-        overnight: !!j.overnight
-      }));
+      const jornadasValidas = (r.jornadas || [])
+        .filter(j => j && isHHMM(j.ini) && isHHMM(j.fin))
+        .map(j => ({
+          ini: j.ini,
+          fin: j.fin,
+          overnight: !!j.overnight
+        }))
+        .filter(j => j.overnight || timeLt(j.ini, j.fin)); // si no es overnight, ini < fin
 
-      // Validaciones de hora
-      for (const j of jornadas) {
-        if (!/^\d{2}:\d{2}$/.test(j.ini) || !/^\d{2}:\d{2}$/.test(j.fin)) {
-          return res.status(400).json({
-            message: 'Hora inválida. Usa HH:mm o hh:mm AM/PM',
-            detalle: j
-          });
-        }
-        if (!j.overnight && !timeLt(j.ini, j.fin)) {
-          return res.status(400).json({
-            message: '"ini" debe ser menor que "fin" cuando overnight=false',
-            detalle: j
-          });
-        }
-      }
+      if (jornadasValidas.length === 0) continue; // inactivo ⇒ no guardamos
 
-      reglasNorm.push({ dow, jornadas });
+      mapByDow.set(dow, jornadasValidas);
+    }
+    const reglasNorm = Array.from(mapByDow.entries())
+      .map(([dow, jornadas]) => ({ dow, jornadas }))
+      .sort((a, b) => a.dow - b.dow);
+
+    // ---- Normalizar bloque “nuevoIngreso” (opcional)
+    let nuevoIngresoNorm = sede.horarioBase?.nuevoIngreso || undefined;
+    if (nuevoIngreso) {
+      const activo = !!nuevoIngreso.activo;
+      let jornadasNI = Array.isArray(nuevoIngreso.jornadas) ? nuevoIngreso.jornadas : [];
+      jornadasNI = jornadasNI
+        .filter(j => j && isHHMM(j.ini) && isHHMM(j.fin))
+        .map(j => ({
+          ini: j.ini,
+          fin: j.fin,
+          overnight: !!j.overnight
+        }))
+        .filter(j => j.overnight || timeLt(j.ini, j.fin));
+
+      nuevoIngresoNorm = {
+        activo,
+        duracionDias: Number(nuevoIngreso.duracionDias) > 0 ? Number(nuevoIngreso.duracionDias) : 30,
+        aplicarSoloDiasActivosBase: nuevoIngreso.aplicarSoloDiasActivosBase !== false, // default true
+        jornadas: activo ? jornadasNI : []
+      };
     }
 
     const prevVersion = sede.horarioBase?.meta?.version || 0;
-    sede.horarioBase = { desde: desdeDate, reglas: reglasNorm, meta: { version: prevVersion + 1 } };
+    sede.horarioBase = {
+      desde: desdeDate,
+      reglas: reglasNorm,
+      meta: { version: prevVersion + 1 },
+      ...(nuevoIngresoNorm ? { nuevoIngreso: nuevoIngresoNorm } : {})
+    };
+
     await sede.save();
     return res.json(sede.horarioBase);
   } catch (e) {
     console.error('setHorarioBase', e);
-    return res.status(500).json({ message: 'Error al guardar horario base' });
+    res.status(500).json({ message: 'Error al guardar horario base' });
   }
 };
 
