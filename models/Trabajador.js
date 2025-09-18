@@ -1,69 +1,87 @@
-// models/Trabajador.js
 const mongoose = require('mongoose');
 
-const HistorialSedeSchema = new mongoose.Schema({
-  idSede: { type: Number, required: true },
-  nombre: { type: String, default: '' },     // opcional, por si quieres mostrar nombre directo
-  fechaInicio: { type: Date, default: Date.now },
-  fechaFin: { type: Date, default: null }
-}, { _id: false });
-
 const TrabajadorSchema = new mongoose.Schema({
-  // --- Datos básicos
   nombre: { type: String, required: true, trim: true },
 
-  // --- Compatibilidad legacy: `sede` se mantiene como espejo de `sedePrincipal`
-  sede: { type: Number, required: false, default: null, index: true },
+  // 🧭 Sede principal + espejo legacy
+  sede: { type: Number, default: null },            // espejo para compatibilidad
+  sedePrincipal: { type: Number, default: null },
 
-  // --- Nuevo modelo multisede
-  sedePrincipal: { type: Number, default: null, index: true },
+  // 🌎 Foráneas (sin límite; deduplicadas y sin la principal)
   sedesForaneas: { type: [Number], default: [] },
 
-  historialSedes: { type: [HistorialSedeSchema], default: [] },
+  // ⏱️ Checador
+  id_checador: { type: Number, required: true, unique: false }, // pon unique:true cuando no tengas duplicados
 
-  // --- Checador
-  // Si tu backend antes lo generaba automáticamente, puedes dejarlo opcional
-  id_checador: { type: Number, required: false, unique: false },
-
-  // --- Otros datos
+  // 🔄 Estado de sincronización
   sincronizado: { type: Boolean, default: false },
+
+  // 📇 Datos de contacto
   correo: { type: String, default: '' },
   telefono: { type: String, default: '' },
   telefonoEmergencia: { type: String, default: '' },
   direccion: { type: String, default: '' },
   puesto: { type: String, default: '' },
+
+  // 🚥 Estatus laboral
   estado: { type: String, enum: ['activo', 'inactivo'], default: 'activo' },
+  fechaAlta: { type: Date, default: null },
 
-  // --- Alta (opcional)
-  fechaAlta: { type: Date, default: null }
-}, { timestamps: true });
+  // 🗂️ Historial de sedes
+  historialSedes: [{
+    idSede: Number,
+    nombre: String,
+    fechaInicio: Date,
+    fechaFin: { type: Date, default: null }
+  }]
+}, { timestamps: true, collection: 'trabajadores' });
 
-/**
- * Helper para cambiar sede principal y mantener historial.
- * nombreSede es opcional (si quieres guardar el nombre para reportes rápidos).
- */
-TrabajadorSchema.methods.cambiarSede = function (nuevaSede, nombreSede = '') {
-  const ahora = new Date();
+/* =========================
+   Setters / Hooks de limpieza
+   ========================= */
 
-  // cierra historial abierto
-  const abierto = this.historialSedes.find(h => !h.fechaFin);
-  if (abierto) abierto.fechaFin = ahora;
+// Quita duplicados y la principal de sedesForaneas
+TrabajadorSchema.path('sedesForaneas').set(function (v) {
+  const arr = Array.isArray(v) ? v.map(Number).filter(n => !Number.isNaN(n)) : [];
+  const principal = this.sedePrincipal ?? this.sede ?? null;
+  const unique = [...new Set(arr)];
+  return principal == null ? unique : unique.filter(x => x !== Number(principal));
+});
 
-  // crea nuevo historial
-  if (nuevaSede !== null && nuevaSede !== undefined) {
-    this.historialSedes.push({
-      idSede: Number(nuevaSede),
-      nombre: nombreSede || '',
-      fechaInicio: ahora,
-      fechaFin: null
-    });
+// Espejo sede <-> sedePrincipal en save
+TrabajadorSchema.pre('save', function (next) {
+  if (this.isModified('sedePrincipal')) this.sede = this.sedePrincipal;
+  if (this.isModified('sede') && (this.sedePrincipal == null || this.isModified('sede'))) {
+    this.sedePrincipal = this.sede;
+  }
+  next();
+});
+
+// Espejo + limpieza en updates tipo findOneAndUpdate
+TrabajadorSchema.pre('findOneAndUpdate', function (next) {
+  const update = this.getUpdate() || {};
+  const $set = update.$set || update;
+
+  if ($set.sedePrincipal != null) $set.sede = $set.sedePrincipal;
+  else if ($set.sede != null) $set.sedePrincipal = $set.sede;
+
+  if ($set.sedesForaneas) {
+    const principal = $set.sedePrincipal ?? $set.sede ?? undefined;
+    let arr = Array.isArray($set.sedesForaneas) ? $set.sedesForaneas.map(Number) : [];
+    arr = [...new Set(arr)];
+    if (principal != null) arr = arr.filter(x => x !== Number(principal));
+    $set.sedesForaneas = arr;
   }
 
-  // actualiza campos espejo
-  this.sedePrincipal = nuevaSede ?? null;
-  this.sede = nuevaSede ?? null;
+  if (!update.$set && update !== $set) this.setUpdate($set);
+  next();
+});
 
-  return this;
-};
+/* =========
+   Índices
+   ========= */
+TrabajadorSchema.index({ id_checador: 1 }); // cambia a { unique: true } cuando limpies duplicados
+TrabajadorSchema.index({ sedePrincipal: 1 });
+TrabajadorSchema.index({ estado: 1 });
 
-module.exports = mongoose.model('Trabajador', TrabajadorSchema, 'trabajadores');
+module.exports = mongoose.model('Trabajador', TrabajadorSchema);
