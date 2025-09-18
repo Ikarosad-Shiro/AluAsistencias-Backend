@@ -1,3 +1,4 @@
+// controllers/asistenciaController.js
 const Asistencia = require('../models/Asistencia');
 const Calendario = require('../models/Calendario');
 const CalendarioTrabajador = require('../models/CalendarioTrabajador');
@@ -86,8 +87,10 @@ const obtenerReportePorTrabajador = async (req, res) => {
     const sedeBase = (trabajador.sedePrincipal ?? trabajador.sede);
     const sedesForaneas = Array.isArray(trabajador.sedesForaneas) ? trabajador.sedesForaneas : [];
 
-    // IMPORTANTE: en Asistencia.trabajador guardas el id_checador (string)
+    // En Asistencia.trabajador guardas el id_checador (string). Fallback al _id por si hay históricos.
     const idChecador = (trabajador.id_checador ?? '').toString();
+    const posiblesIds = [trabajador?._id?.toString()].filter(Boolean);
+    if (idChecador) posiblesIds.push(idChecador);
 
     // Rango de fechas (límite a fin de día)
     const fechaInicio = new Date(inicio);
@@ -110,7 +113,7 @@ const obtenerReportePorTrabajador = async (req, res) => {
 
     // 1) Asistencias en rango (por fecha YYYY-MM-DD o por detalle.fechaHora)
     const asistencias = await Asistencia.find({
-      trabajador: idChecador,
+      trabajador: { $in: posiblesIds },
       ...filtroSede,
       $or: [
         { fecha: { $gte: inicio, $lte: fin } },
@@ -201,7 +204,7 @@ const obtenerReportePorTrabajador = async (req, res) => {
         eventoSede: eventoSede?.tipo || '',
         eventoTrabajador: eventoTrabajador?.tipo || '',
         estado,
-        // 👇 Info multi‑sede para usar en el PDF
+        // 👇 Info multi-sede para usar en el PDF/UI
         sedeEntrada: entradaReg?.sede ?? null,
         sedeSalida: salidaReg?.sede ?? null,
         sedesPresentes: Array.from(sedesDia)

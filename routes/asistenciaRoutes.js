@@ -19,7 +19,7 @@ const isoDay = (d) => {
   return dt.setZone('America/Mexico_City').toISODate();
 };
 
-// Emojis para tipos de evento
+// Emojis para tipos de evento (para PDFs/visuales)
 function obtenerEmojiPorTipo(tipo) {
   switch (tipo) {
     case 'Vacaciones': return '🌴 Vacaciones';
@@ -43,19 +43,18 @@ function obtenerEmojiPorTipo(tipo) {
 router.post('/registrar', async (req, res) => {
   try {
     const { trabajadorId, sede, tipo } = req.body;
-
     if (!['Entrada', 'Salida'].includes(tipo)) {
       return res.status(400).json({ message: 'Tipo de asistencia inválido.' });
     }
 
     // Hora CDMX
-    const ahora = DateTime.now().setZone('America/Mexico_City');
-    const ahoraISO = ahora.toISO();       // 2025-05-13T10:00:00-06:00
-    const fechaStr = ahora.toISODate();   // 2025-05-13
+    const now = DateTime.now().setZone('America/Mexico_City');
+    const ahoraISO = now.toISO();       // 2025-05-13T10:00:00-06:00
+    const fechaStr = now.toISODate();   // 2025-05-13
 
     // Evitar duplicados por tipo en el día
     const existe = await Asistencia.findOne({
-      trabajador: trabajadorId, // ⚠️ aquí se espera el id_checador (string)
+      trabajador: trabajadorId, // aquí se espera el id_checador (string)
       fecha: fechaStr,
       'detalle.tipo': tipo
     });
@@ -68,12 +67,7 @@ router.post('/registrar', async (req, res) => {
       trabajador: trabajadorId, // id_checador
       sede,
       fecha: fechaStr,
-      detalle: [
-        {
-          tipo,
-          fechaHora: ahoraISO
-        }
-      ]
+      detalle: [{ tipo, fechaHora: ahoraISO }]
     });
 
     await nuevaAsistencia.save();
@@ -87,7 +81,8 @@ router.post('/registrar', async (req, res) => {
 // 📌 Reporte por trabajador (usa el controlador multi-sede)
 router.get('/reporte/trabajador/:trabajadorId', obtenerReportePorTrabajador);
 
-// 📌 Ruta unificada para PDF/Excel del TRABAJADOR (multi-sede para asistencias, calendario de sede principal)
+// 📌 Ruta unificada para PDF/Excel del TRABAJADOR
+//     (multi-sede para asistencias, calendario de sede principal)
 router.get('/unificado/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -101,7 +96,7 @@ router.get('/unificado/:id', async (req, res) => {
     const fechaFin = new Date(fin);
     fechaFin.setHours(23, 59, 59, 999);
 
-    const trabajador = await Trabajador.findById(id);
+    const trabajador = await Trabajador.findById(id).lean();
     if (!trabajador) {
       return res.status(404).json({ message: 'Trabajador no encontrado.' });
     }
@@ -110,45 +105,52 @@ router.get('/unificado/:id', async (req, res) => {
     const sedesForaneas = Array.isArray(trabajador.sedesForaneas) ? trabajador.sedesForaneas : [];
     const sedesPermitidas = [...new Set([sedeBase, ...sedesForaneas])].filter((s) => s != null);
 
-    // id_checador como string
+    // id_checador como string + fallback _id (por registros históricos)
     const idChecador = (trabajador.id_checador ?? '').toString();
+    const posiblesIds = [trabajador?._id?.toString()].filter(Boolean);
+    if (idChecador) posiblesIds.push(idChecador);
 
-    const filtroSede =
-      soloSedePrincipal === 'true'
-        ? { sede: sedeBase }
-        : { sede: { $in: sedesPermitidas } };
+    // 🔧 Filtro de sede (misma lógica que el controller)
+    let filtroSede = {};
+    if (soloSedePrincipal === 'true') {
+      filtroSede = (sedeBase != null) ? { sede: sedeBase } : {};
+    } else if ((sedesPermitidas || []).length) {
+      filtroSede = { sede: { $in: sedesPermitidas } };
+    } else {
+      filtroSede = {}; // sin filtro si no hay foráneas registradas
+    }
 
     const [asistencias, calendarioTrabajador, calendarioSede] = await Promise.all([
       Asistencia.find({
-        trabajador: idChecador,
+        trabajador: { $in: posiblesIds },
         ...filtroSede,
         $or: [
           { fecha: { $gte: inicio, $lte: fin } },
           { 'detalle.fechaHora': { $gte: fechaInicio, $lte: fechaFin } }
         ]
-      }),
+      }).lean(),
       CalendarioTrabajador.findOne({
         trabajador: trabajador._id,
         $or: [{ anio: fechaInicio.getFullYear() }, { ['año']: fechaInicio.getFullYear() }]
-      }),
-      // 👇 calendario SOLO de la sede principal (como definiste)
+      }).lean(),
+      // calendario SOLO de la sede principal
       Calendario.findOne({
         sedes: sedeBase,
         $or: [{ anio: fechaInicio.getFullYear() }, { ['año']: fechaInicio.getFullYear() }]
-      })
+      }).lean()
     ]);
 
-    // Aplana y normaliza el detalle
-    const asistenciasFormateadas = asistencias.map((a) => {
-      const obj = a.toObject();
-      const detallePlano = (obj.detalle || []).map((d) => ({
+    // Aplana y normaliza el detalle (incluye sede por registro)
+    const asistenciasFormateadas = (asistencias || []).map((a) => ({
+      ...a,
+      detalle: (a.detalle || []).map((d) => ({
         tipo: d.tipo,
         fechaHora: new Date(d.fechaHora).toISOString(),
         salida_automatica: !!d.salida_automatica,
-        sincronizado: !!d.sincronizado
-      }));
-      return { ...obj, detalle: detallePlano };
-    });
+        sincronizado: !!d.sincronizado,
+        sede: d.sede ?? a.sede ?? null
+      }))
+    }));
 
     res.json({
       asistencias: asistenciasFormateadas,
@@ -174,7 +176,7 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
     const fechaInicio = DateTime.fromISO(inicio).startOf('day');
     const fechaFin = DateTime.fromISO(fin).endOf('day');
 
-    const trabajadores = await Trabajador.find({ sede: Number(sedeId) });
+    const trabajadores = await Trabajador.find({ sede: Number(sedeId) }).lean();
     if (!trabajadores.length) {
       return res.status(404).json({ message: 'No hay trabajadores en esta sede.' });
     }
@@ -182,7 +184,7 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
     const calendarioSede = await Calendario.findOne({
       sedes: Number(sedeId),
       $or: [{ anio: fechaInicio.year }, { ['año']: fechaInicio.year }]
-    });
+    }).lean();
 
     const resultados = [];
 
@@ -199,7 +201,7 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
       const calendarioTrabajador = await CalendarioTrabajador.findOne({
         trabajador: trabajador._id,
         $or: [{ anio: fechaInicio.year }, { ['año']: fechaInicio.year }]
-      });
+      }).lean();
 
       const datosPorDia = {};
       let cursor = fechaInicio;
@@ -265,7 +267,7 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
       }
 
       resultados.push({
-        nombre: [trabajador.nombre, trabajador.apellido].filter(Boolean).join(' '),
+        nombre: [trabajador.nombre, trabajador.apellido, trabajador.segundoApellido].filter(Boolean).join(' '),
         id: trabajador._id,
         datosPorDia
       });
@@ -287,14 +289,15 @@ router.get('/hoy', async (req, res) => {
   try {
     const hoy = DateTime.now().setZone('America/Mexico_City').toISODate();
 
+    // Nota: si tu colección no guarda `estado` calculado, podrías quitar el filtro de estado.
     const asistencias = await Asistencia.find({
       fecha: hoy,
       estado: { $in: ['Asistencia Completa', 'Pendiente', 'Salida Automática'] }
-    });
+    }).lean();
 
     // Al menos tenga una marca de inicio
-    const asistenciasFiltradas = asistencias.filter((a) =>
-      a.detalle.some((d) => ['Entrada', 'Asistencia', 'Entrada Manual'].includes(d.tipo))
+    const asistenciasFiltradas = (asistencias || []).filter((a) =>
+      (a.detalle || []).some((d) => ['Entrada', 'Asistencia', 'Entrada Manual'].includes(d.tipo))
     );
 
     const resultado = await Promise.all(
@@ -302,15 +305,15 @@ router.get('/hoy', async (req, res) => {
         const trabajadorDoc = await Trabajador.findOne({
           id_checador: a.trabajador,
           sede: a.sede
-        });
+        }).lean();
 
-        const sedeDoc = await Sede.findOne({ id: a.sede });
+        const sedeDoc = await Sede.findOne({ id: a.sede }).lean();
 
         const nombreCompleto = [trabajadorDoc?.nombre, trabajadorDoc?.apellido, trabajadorDoc?.segundoApellido]
           .filter(Boolean)
           .join(' ');
 
-        const entrada = a.detalle.find((d) => ['Entrada', 'Asistencia', 'Entrada Manual'].includes(d.tipo));
+        const entrada = (a.detalle || []).find((d) => ['Entrada', 'Asistencia', 'Entrada Manual'].includes(d.tipo));
 
         let horaEntrada = null;
         if (entrada?.fechaHora) {
@@ -336,14 +339,15 @@ router.get('/hoy', async (req, res) => {
     resultado.sort((a, b) => {
       if (!a.hora) return 1;
       if (!b.hora) return -1;
-      const [hA, mA] = a.hora.split(':');
-      const [hB, mB] = b.hora.split(':');
-      // quitar sufijo AM/PM
+      const [hA, mAraw] = a.hora.split(':');
+      const [hB, mBraw] = b.hora.split(':');
+      const mA = parseInt(mAraw, 10);
+      const mB = parseInt(mBraw, 10);
       const ampmA = a.hora.toLowerCase().includes('pm');
       const ampmB = b.hora.toLowerCase().includes('pm');
-      let HH_A = parseInt(hA, 10) % 12 + (ampmA ? 12 : 0);
-      let HH_B = parseInt(hB, 10) % 12 + (ampmB ? 12 : 0);
-      return HH_A * 60 + parseInt(mA, 10) - (HH_B * 60 + parseInt(mB, 10));
+      const HH_A = (parseInt(hA, 10) % 12) + (ampmA ? 12 : 0);
+      const HH_B = (parseInt(hB, 10) % 12) + (ampmB ? 12 : 0);
+      return HH_A * 60 + mA - (HH_B * 60 + mB);
     });
 
     res.json(resultado);
