@@ -13,7 +13,11 @@ const { obtenerReportePorTrabajador } = require('../controllers/asistenciaContro
 const router = express.Router();
 
 // 🧩 Helpers
-const isoDay = (d) => DateTime.fromJSDate(new Date(d)).toISODate();
+const isoDay = (d) => {
+  if (!d) return '';
+  const dt = typeof d === 'string' ? DateTime.fromISO(d) : DateTime.fromJSDate(new Date(d));
+  return dt.setZone('America/Mexico_City').toISODate();
+};
 
 // Emojis para tipos de evento
 function obtenerEmojiPorTipo(tipo) {

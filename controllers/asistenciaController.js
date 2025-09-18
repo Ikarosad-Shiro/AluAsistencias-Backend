@@ -5,53 +5,38 @@ const CalendarioTrabajador = require('../models/CalendarioTrabajador');
 const Trabajador = require('../models/Trabajador');
 const { DateTime } = require('luxon');
 
-/* =========================
- * Helpers de fecha/hora
- * ========================= */
+// ===== Helpers de zona horaria (CDMX) =========================
+const ZONE = 'America/Mexico_City';
 
-// HH:mm en zona CDMX
-const horaMX = (fecha) => {
+// Día YYYY-MM-DD en CDMX a partir de cualquier tipo (string ISO o Date)
+const dayMX = (value) => {
+  if (!value) return '';
+  const dt = typeof value === 'string'
+    ? DateTime.fromISO(value)                 // respeta offset si viene "-06:00" o "Z"
+    : DateTime.fromJSDate(new Date(value));  // normaliza si viene como Date
+  return dt.setZone(ZONE).toISODate();       // <-- día en CDMX, sin saltarse al siguiente
+};
+
+// Hora HH:mm (24h) en CDMX
+const timeMX = (value) => {
+  if (!value) return '';
   try {
-    return DateTime.fromJSDate(new Date(fecha))
-      .setZone('America/Mexico_City')
-      .toFormat('HH:mm');
+    const dt = typeof value === 'string'
+      ? DateTime.fromISO(value)
+      : DateTime.fromJSDate(new Date(value));
+    return dt.setZone(ZONE).toFormat('HH:mm');
   } catch {
     return '';
   }
 };
 
-// YYYY-MM-DD en zona CDMX (evita desfaces)
-const isoDateMX = (fecha) => {
-  try {
-    return DateTime.fromJSDate(new Date(fecha))
-      .setZone('America/Mexico_City')
-      .toISODate();
-  } catch {
-    return '';
-  }
-};
-
-// normaliza a number y filtra NaN
-const toNumber = (v) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-
-// quita duplicados y NaN
-const uniqNumbers = (arr) =>
-  Array.from(new Set((arr || []).map(toNumber).filter((n) => n !== null)));
-
-/* =========================
- * Búsqueda de calendarios
- * ========================= */
-
+// Calendarios con fallback anio/año
 async function findCalendarioSede(year, sedeBase) {
   return Calendario.findOne({
     sedes: sedeBase,
     $or: [{ anio: year }, { ['año']: year }]
   });
 }
-
 async function findCalendarioTrabajador(year, trabajadorId) {
   return CalendarioTrabajador.findOne({
     trabajador: trabajadorId,
@@ -59,143 +44,118 @@ async function findCalendarioTrabajador(year, trabajadorId) {
   });
 }
 
-/* =========================================================
- * Reporte por trabajador y rango de fechas (multi-sede)
- * - req.params.trabajadorId  = _id de Trabajador (Mongo)
- * - req.query.inicio / fin   = 'YYYY-MM-DD'
- * - req.query.soloSedePrincipal = 'true' | 'false' (opcional)
- * ========================================================= */
+// ===================== Reporte por trabajador (multi-sede) =====================
 const obtenerReportePorTrabajador = async (req, res) => {
   try {
     const { trabajadorId } = req.params;
     const { inicio, fin, soloSedePrincipal } = req.query;
 
     if (!trabajadorId || !inicio || !fin) {
-      return res
-        .status(400)
-        .json({ message: 'Faltan parámetros: trabajadorId, inicio o fin.' });
+      return res.status(400).json({ message: 'Faltan parámetros: trabajadorId, inicio o fin.' });
     }
 
-    // 1) Trabajador
     const trabajador = await Trabajador.findById(trabajadorId);
     if (!trabajador) {
       return res.status(404).json({ message: 'Trabajador no encontrado.' });
     }
 
-    // id_checador debe consultarse como string
-    const idChecador = (trabajador.id_checador ?? '').toString().trim();
-    if (!idChecador) {
-      return res
-        .status(400)
-        .json({ message: 'El trabajador no tiene id_checador configurado.' });
-    }
+    // Sedes del trabajador
+    const sedeBase = trabajador.sedePrincipal ?? trabajador.sede;
+    const sedesForaneas = Array.isArray(trabajador.sedesForaneas) ? trabajador.sedesForaneas : [];
+    const sedesPermitidas = [...new Set([sedeBase, ...sedesForaneas])].filter((s) => s != null);
 
-    // 2) Sedes permitidas (principal + foráneas) como NUMBER
-    const sedeBaseN = toNumber(trabajador.sedePrincipal ?? trabajador.sede);
-    const sedesForaneasN = uniqNumbers(trabajador.sedesForaneas || []);
-    const sedesPermitidas = uniqNumbers([sedeBaseN, ...sedesForaneasN]);
+    // MUY IMPORTANTE: en Asistencia.trabajador guardas el id_checador (string)
+    const idChecador = (trabajador.id_checador ?? '').toString();
 
-    // 3) Rango de fechas (como textos YYYY-MM-DD y objeto Date para límites)
-    const inicioStr = String(inicio);
-    const finStr = String(fin);
-
-    const fechaInicio = new Date(inicioStr);
-    const fechaFin = new Date(finStr);
-    // incluye todo el día fin
+    // Rango de fechas (límite de día)
+    const fechaInicio = new Date(inicio);
+    const fechaFin = new Date(fin);
     fechaFin.setHours(23, 59, 59, 999);
 
-    // 4) Filtro de sede
-    const filtroSede =
-      soloSedePrincipal === 'true'
-        ? { sede: sedeBaseN }
-        : { sede: { $in: sedesPermitidas } };
+    // 🔧 Filtro de sede:
+    // - Si piden solo principal → filtra
+    // - Si NO piden solo principal y no hay sedesForaneas registradas → NO filtra por sede (trae todas)
+    // - Si hay sedesForaneas → usa $in
+    let filtroSede = {};
+    if (soloSedePrincipal === 'true') {
+      filtroSede = { sede: sedeBase };
+    } else if ((sedesPermitidas || []).length) {
+      filtroSede = { sede: { $in: sedesPermitidas } };
+    } else {
+      filtroSede = {}; // sin filtro: multi-sede “libre”
+    }
 
-    // 5) Asistencias: **solo por campo estable 'fecha'**
+    // 1) Asistencias en rango
     const asistencias = await Asistencia.find({
       trabajador: idChecador,
       ...filtroSede,
-      fecha: { $gte: inicioStr, $lte: finStr }
+      $or: [
+        { fecha: { $gte: inicio, $lte: fin } },                 // campo string YYYY-MM-DD
+        { 'detalle.fechaHora': { $gte: fechaInicio, $lte: fechaFin } } // por fechaHora
+      ]
     }).lean();
 
-    // 6) Calendarios (sede principal y del trabajador)
+    // 2) Calendarios (solo sede principal; trabajador por _id)
     const [calendarioSede, calendarioTrabajador] = await Promise.all([
-      findCalendarioSede(fechaInicio.getFullYear(), sedeBaseN),
+      findCalendarioSede(fechaInicio.getFullYear(), sedeBase),
       findCalendarioTrabajador(fechaInicio.getFullYear(), trabajador._id)
     ]);
 
-    // 7) Generar el reporte día por día (incluyendo ambos extremos)
+    // 3) Generar reporte día a día (en CDMX)
     const resultado = [];
-    let cursor = DateTime.fromJSDate(fechaInicio)
-      .setZone('America/Mexico_City')
-      .startOf('day');
-    const finL = DateTime.fromJSDate(fechaFin)
-      .setZone('America/Mexico_City')
-      .startOf('day');
+    const cursor = DateTime.fromJSDate(fechaInicio).setZone(ZONE).startOf('day');
+    const finDT  = DateTime.fromJSDate(fechaFin).setZone(ZONE).startOf('day');
 
-    while (cursor <= finL) {
-      const fechaStr = cursor.toISODate(); // YYYY-MM-DD en CDMX
+    for (let d = cursor; d <= finDT; d = d.plus({ days: 1 })) {
+      const fechaStr = d.toISODate();
 
-      // Asistencias del día (por 'fecha' exacta)
-      const delDia = asistencias.filter((a) => a.fecha === fechaStr);
+      // Asistencias que “caen” en ese día en CDMX
+      const delDia = asistencias.filter(a =>
+        a.fecha === fechaStr ||
+        (a.detalle || []).some(x => dayMX(x.fechaHora) === fechaStr)
+      );
 
-      // Selección de primera Entrada y última Salida del día
+      // Tomar primera Entrada y última Salida del día
       let entrada = null;
       let salida = null;
-
-      delDia.forEach((a) => {
-        (a.detalle || []).forEach((d) => {
-          // Solo considera marcas cuyo detalle cae en el mismo día en CDMX
-          const dDia = isoDateMX(d.fechaHora);
-          if (dDia !== fechaStr) return;
-
-          if (d.tipo === 'Entrada') {
-            if (!entrada || new Date(d.fechaHora) < new Date(entrada.fechaHora)) {
-              entrada = d;
-            }
-          }
-          if (d.tipo === 'Salida') {
-            if (!salida || new Date(d.fechaHora) > new Date(salida.fechaHora)) {
-              salida = d;
-            }
+      delDia.forEach(a => {
+        (a.detalle || []).forEach(reg => {
+          if (dayMX(reg.fechaHora) !== fechaStr) return;
+          if (reg.tipo === 'Entrada' && !entrada) entrada = reg;
+          if (reg.tipo === 'Salida') {
+            if (!salida) salida = reg;
+            else if (new Date(reg.fechaHora) > new Date(salida.fechaHora)) salida = reg;
           }
         });
       });
 
-      // Eventos del día
-      const eventoSede =
-        calendarioSede?.diasEspeciales?.find((e) => isoDateMX(e.fecha) === fechaStr) ||
-        null;
-      const eventoTrabajadorDia =
-        calendarioTrabajador?.diasEspeciales?.find(
-          (e) => isoDateMX(e.fecha) === fechaStr
-        ) || null;
+      // Eventos del día (en CDMX)
+      const eventoSede = calendarioSede?.diasEspeciales?.find(e => dayMX(e.fecha) === fechaStr);
+      const eventoTrabajador = calendarioTrabajador?.diasEspeciales?.find(e => dayMX(e.fecha) === fechaStr);
 
-      // Estado (prioridad: eventoTrabajador > (entrada/salida) > eventoSede > Falta)
+      // Jerarquía: eventoTrabajador > (entrada/salida) > eventoSede > falta
       let estado = 'Falta';
-      let entTxt = entrada ? horaMX(entrada.fechaHora) : '';
-      let salTxt = salida ? horaMX(salida.fechaHora) : '';
+      let entTxt = entrada ? timeMX(entrada.fechaHora) : '';
+      let salTxt = salida ? timeMX(salida.fechaHora) : '';
 
-      if (eventoTrabajadorDia) {
-        const tipo = (eventoTrabajadorDia.tipo || '').toLowerCase().trim();
+      if (eventoTrabajador) {
         if (
-          tipo === 'asistencia' &&
-          eventoTrabajadorDia.horaEntrada &&
-          eventoTrabajadorDia.horaSalida
+          (eventoTrabajador.tipo || '').toLowerCase().trim() === 'asistencia' &&
+          eventoTrabajador.horaEntrada &&
+          eventoTrabajador.horaSalida
         ) {
           estado = 'Asistencia Manual';
-          entTxt = eventoTrabajadorDia.horaEntrada;
-          salTxt = eventoTrabajadorDia.horaSalida;
+          entTxt = eventoTrabajador.horaEntrada;
+          salTxt = eventoTrabajador.horaSalida;
         } else {
-          estado = eventoTrabajadorDia.tipo || 'Evento';
+          estado = eventoTrabajador.tipo;
         }
       } else if (entrada && salida) {
         estado = 'Asistencia Completa';
       } else if (entrada && !salida) {
-        // si ya pasó el día sin salida, lo marcamos como salida automática
-        const hoyMX = DateTime.now().setZone('America/Mexico_City').toISODate();
-        estado = fechaStr < hoyMX ? 'Salida Automática' : 'Entrada sin salida';
+        estado = 'Salida Automática';
       } else if (eventoSede) {
-        estado = eventoSede.tipo || 'Evento';
+        estado = eventoSede.tipo;
       } else {
         estado = 'Falta';
       }
@@ -205,22 +165,16 @@ const obtenerReportePorTrabajador = async (req, res) => {
         entrada: entTxt,
         salida: salTxt,
         eventoSede: eventoSede?.tipo || '',
-        eventoTrabajador: eventoTrabajadorDia?.tipo || '',
+        eventoTrabajador: eventoTrabajador?.tipo || '',
         estado
       });
-
-      cursor = cursor.plus({ days: 1 });
     }
 
-    return res.json(resultado);
+    res.json(resultado);
   } catch (error) {
     console.error('❌ Error al generar reporte:', error);
-    return res
-      .status(500)
-      .json({ message: 'Error interno al generar reporte.', detail: error?.message });
+    res.status(500).json({ message: 'Error interno al generar reporte.' });
   }
 };
 
-module.exports = {
-  obtenerReportePorTrabajador
-};
+module.exports = { obtenerReportePorTrabajador };
