@@ -17,6 +17,12 @@ router.post('/verificar-password', authMiddleware, trabajadoresController.verifi
 
 //------------------trabajador en particular--------------------
 
+// 🆕 📌 Actualizar SOLO sedes (sede principal + sedes foráneas)
+router.put('/:id/sedes', authMiddleware, trabajadoresController.actualizarSedes);
+
+// (opcional) Alias por si en el front quedó en singular en algún punto
+router.put('/:id/sede', authMiddleware, trabajadoresController.actualizarSedes);
+
 // 📌 Obtener un trabajador por ID
 router.get('/:id', authMiddleware, trabajadoresController.obtenerTrabajadorPorId);
 
