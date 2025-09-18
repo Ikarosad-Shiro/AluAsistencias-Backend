@@ -15,6 +15,108 @@ const toNum = (v) =>
 const uniqNums = (arr = []) =>
   [...new Set((Array.isArray(arr) ? arr : []).map(n => Number(n)))];
 
+// Normaliza un arreglo de historial (solo en memoria, para respuesta)
+const normalizeHistorialArray = async (arr = []) => {
+  if (!Array.isArray(arr)) return [];
+  // Coerce types + fill nombre si está vacío
+  const normalizados = [];
+  for (const h of arr) {
+    const idSedeNum = toNum(h.idSede);
+    let nombre = (h.nombre || '').trim();
+
+    if (!nombre && idSedeNum !== null) {
+      const sedeDoc = await Sede.findOne({ id: idSedeNum }).select('nombre');
+      nombre = sedeDoc?.nombre || '';
+    }
+
+    normalizados.push({
+      idSede: idSedeNum,
+      nombre,
+      fechaInicio: h.fechaInicio ? new Date(h.fechaInicio) : null,
+      fechaFin: h.fechaFin ? new Date(h.fechaFin) : null,
+    });
+  }
+
+  // Orden ASC por fechaInicio
+  normalizados.sort((a, b) => {
+    const ai = a.fechaInicio ? a.fechaInicio.getTime() : 0;
+    const bi = b.fechaInicio ? b.fechaInicio.getTime() : 0;
+    return ai - bi;
+  });
+
+  // Fusionar consecutivos con misma sede
+  const fusionados = [];
+  for (const item of normalizados) {
+    const last = fusionados[fusionados.length - 1];
+    if (last && last.idSede === item.idSede) {
+      // extiende rango
+      if (!last.fechaInicio || (item.fechaInicio && item.fechaInicio < last.fechaInicio)) {
+        last.fechaInicio = item.fechaInicio;
+      }
+      // si item tiene fechaFin más reciente, úsala
+      if (item.fechaFin && (!last.fechaFin || item.fechaFin > last.fechaFin)) {
+        last.fechaFin = item.fechaFin;
+      }
+    } else {
+      fusionados.push({ ...item });
+    }
+  }
+
+  return fusionados;
+};
+
+// Normaliza y corrige historial **en base de datos**
+const repairAndPersistHistorial = async (trabajador) => {
+  if (!trabajador) return trabajador;
+
+  // 1) Normaliza lo existente en memoria
+  let hist = await normalizeHistorialArray(trabajador.historialSedes || []);
+
+  // 2) Cierra múltiples abiertos si existieran (deja 1 abierto como máximo)
+  const abiertosIdx = hist
+    .map((h, idx) => (!h.fechaFin ? idx : -1))
+    .filter(idx => idx !== -1);
+
+  if (abiertosIdx.length > 1) {
+    // cierra todos menos el último por fechaInicio
+    abiertosIdx.slice(0, -1).forEach(i => {
+      hist[i].fechaFin = new Date();
+    });
+  }
+
+  // Recalcula abierto final
+  const abierto = hist.find(h => !h.fechaFin) || null;
+
+  // 3) Asegurar que haya un registro abierto para la sedePrincipal actual
+  const principal = toNum(trabajador.sedePrincipal ?? trabajador.sede);
+  if (principal !== null) {
+    if (!abierto || abierto.idSede !== principal) {
+      // cierra abierto existente
+      if (abierto) abierto.fechaFin = new Date();
+
+      // abre uno nuevo para la principal
+      const sedeDoc = await Sede.findOne({ id: principal }).select('nombre');
+      hist.push({
+        idSede: principal,
+        nombre: sedeDoc?.nombre || '',
+        fechaInicio: new Date(),
+        fechaFin: null,
+      });
+    }
+  }
+
+  // 4) Ordena y persiste
+  hist.sort((a, b) => {
+    const ai = a.fechaInicio ? a.fechaInicio.getTime() : 0;
+    const bi = b.fechaInicio ? b.fechaInicio.getTime() : 0;
+    return ai - bi;
+  });
+
+  trabajador.historialSedes = hist;
+  await trabajador.save();
+  return trabajador;
+};
+
 // =========================
 // Controladores
 // =========================
@@ -22,7 +124,6 @@ const uniqNums = (arr = []) =>
 // 🔥 Obtener todos los trabajadores
 const obtenerTrabajadores = async (_req, res) => {
   try {
-    // Incluimos campos nuevos + compat con FE (sede/estado/sincronizado)
     const trabajadores = await Trabajador.find(
       {},
       '_id nombre sede sedePrincipal sedesForaneas id_checador sincronizado estado'
@@ -39,13 +140,12 @@ const agregarTrabajador = async (req, res) => {
   try {
     const {
       nombre,
-      sede,                 // legacy (por compat)
-      sedePrincipal,        // nuevo
-      sedesForaneas = [],   // nuevo
-      // opcionales
+      sede,
+      sedePrincipal,
+      sedesForaneas = [],
       correo, telefono, telefonoEmergencia, direccion, puesto,
       estado, sincronizado, fechaAlta,
-      id_checador           // si lo mandas manual, se respeta
+      id_checador
     } = req.body;
 
     const principal = toNum(sedePrincipal ?? sede);
@@ -53,29 +153,21 @@ const agregarTrabajador = async (req, res) => {
       return res.status(400).json({ message: "Nombre y sede principal son requeridos" });
     }
 
-    // 🧠 Obtener nombre de la sede para historial
     const sedeDoc = await Sede.findOne({ id: principal });
     const nombreSede = sedeDoc?.nombre || 'Desconocida';
 
-    // ✅ Generar id_checador si no viene en la petición
     let nuevoIdChecador = id_checador ?? null;
     if (nuevoIdChecador === null || Number.isNaN(Number(nuevoIdChecador))) {
       const ultimo = await Trabajador.findOne().sort({ id_checador: -1 }).select('id_checador');
       nuevoIdChecador = (ultimo && !isNaN(ultimo.id_checador)) ? ultimo.id_checador + 1 : 100;
     }
 
-    // 🧹 Foráneas: únicas y sin la principal
     const foraneas = uniqNums(sedesForaneas).filter(id => id !== principal);
-
     const ahora = new Date();
 
     const nuevoTrabajador = new Trabajador({
       nombre: nombre.trim(),
-
-      // Espejo legacy (para que todo lo viejo siga funcionando)
-      sede: principal,
-
-      // Nuevo modelo multisede
+      sede: principal,               // compat
       sedePrincipal: principal,
       sedesForaneas: foraneas,
       historialSedes: [{
@@ -84,11 +176,7 @@ const agregarTrabajador = async (req, res) => {
         fechaInicio: ahora,
         fechaFin: null
       }],
-
-      // Checador
       id_checador: Number(nuevoIdChecador),
-
-      // Otros datos
       sincronizado: !!sincronizado,
       correo: correo || '',
       telefono: telefono || '',
@@ -129,7 +217,6 @@ const actualizarSedes = async (req, res) => {
     const { id } = req.params;
     let { sedePrincipal, sedesForaneas } = req.body;
 
-    // Validaciones y normalización
     sedePrincipal = Number(sedePrincipal);
     if (!sedePrincipal || Number.isNaN(sedePrincipal)) {
       return res.status(400).json({ message: 'sedePrincipal inválida' });
@@ -146,19 +233,15 @@ const actualizarSedes = async (req, res) => {
       return res.status(404).json({ message: 'Trabajador no encontrado' });
     }
 
-    // ¿Cambió la principal?
-    const principalAnterior = Number(trabajador.sedePrincipal ?? trabajador.sede ?? NaN);
+    const principalAnterior = toNum(trabajador.sedePrincipal ?? trabajador.sede);
     const cambioPrincipal = principalAnterior !== sedePrincipal;
 
-    // Historial: cerrar abiertos si cambió y abrir uno nuevo
     if (cambioPrincipal) {
       if (!Array.isArray(trabajador.historialSedes)) trabajador.historialSedes = [];
-      // Cierra cualquier registro abierto
       trabajador.historialSedes.forEach(h => {
         if (!h.fechaFin) h.fechaFin = new Date();
       });
 
-      // Nombre de la sede para el historial
       const sedeDoc = await Sede.findOne({ id: sedePrincipal });
       trabajador.historialSedes.push({
         idSede: sedePrincipal,
@@ -168,9 +251,8 @@ const actualizarSedes = async (req, res) => {
       });
     }
 
-    // Espejos y nuevos campos
     trabajador.sede = sedePrincipal;            // compatibilidad
-    trabajador.sedePrincipal = sedePrincipal;   // campo nuevo
+    trabajador.sedePrincipal = sedePrincipal;
     trabajador.sedesForaneas = [...new Set(sedesForaneas)];
     trabajador.sincronizado = false;
 
@@ -182,12 +264,29 @@ const actualizarSedes = async (req, res) => {
   }
 };
 
+// 🧰 Reparar/normalizar historial (persistente)
+const repararHistorial = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const t = await Trabajador.findById(id);
+    if (!t) return res.status(404).json({ message: 'Trabajador no encontrado' });
+
+    await repairAndPersistHistorial(t);
+
+    // Devuelve ya normalizado (y ordenado)
+    const limpio = await normalizeHistorialArray(t.historialSedes);
+    res.status(200).json({ message: 'Historial reparado', trabajador: { ...t.toObject(), historialSedes: limpio } });
+  } catch (error) {
+    console.error('❌ Error al reparar historial:', error);
+    res.status(500).json({ message: 'Error al reparar historial' });
+  }
+};
 
 // 🔒 Verificar contraseña del usuario
 const verificarContraseña = async (req, res) => {
   try {
     const { contraseña } = req.body;
-    const userId = req.user.id; // desde token (authMiddleware)
+    const userId = req.user.id;
     const user = await User.findById(userId);
 
     if (!user) return res.status(404).json({ message: 'Usuario no encontrado' });
@@ -210,7 +309,12 @@ const obtenerTrabajadorPorId = async (req, res) => {
 
     if (!trabajador) return res.status(404).json({ message: 'Trabajador no encontrado' });
 
-    res.status(200).json(trabajador);
+    // Normaliza historial solo para la respuesta (no persiste)
+    const limpio = await normalizeHistorialArray(trabajador.historialSedes);
+    const plain = trabajador.toObject();
+    plain.historialSedes = limpio;
+
+    res.status(200).json(plain);
   } catch (error) {
     console.error('❌ Error al obtener trabajador por ID:', error);
     res.status(500).json({ message: 'Error al obtener trabajador' });
@@ -228,36 +332,31 @@ const actualizarTrabajador = async (req, res) => {
 
     // ===== ESTADO =====
     if (body.estado === 'inactivo') {
-      // Desactivación
       t.estado = 'inactivo';
       t.sincronizado = false;
       t.sedesForaneas = [];
       t.sede = null;
       t.sedePrincipal = null;
 
-      // Cerrar historial abierto
       const abierto = (t.historialSedes || []).find(h => !h.fechaFin);
       if (abierto) abierto.fechaFin = new Date();
     } else if (body.estado === 'activo') {
       t.estado = 'activo';
     }
 
-    // ===== CAMBIO DE SEDE PRINCIPAL (acepta body.sede o body.sedePrincipal) =====
+    // ===== CAMBIO DE SEDE PRINCIPAL =====
     if (Object.prototype.hasOwnProperty.call(body, 'sede') ||
         Object.prototype.hasOwnProperty.call(body, 'sedePrincipal')) {
 
       const nuevaPrincipal = toNum(body.sedePrincipal ?? body.sede);
 
       if (nuevaPrincipal !== null && nuevaPrincipal !== t.sedePrincipal) {
-        // Cierra historial abierto
         const abierto = (t.historialSedes || []).find(h => !h.fechaFin);
         if (abierto) abierto.fechaFin = new Date();
 
-        // Busca nombre de la sede
         const sedeDoc = await Sede.findOne({ id: nuevaPrincipal });
         const nombreSede = sedeDoc?.nombre || '';
 
-        // Abre nuevo historial
         t.historialSedes = Array.isArray(t.historialSedes) ? t.historialSedes : [];
         t.historialSedes.push({
           idSede: nuevaPrincipal,
@@ -266,10 +365,9 @@ const actualizarTrabajador = async (req, res) => {
           fechaFin: null
         });
 
-        // Actualiza espejo
         t.sedePrincipal = nuevaPrincipal;
         t.sede = nuevaPrincipal;
-        t.sincronizado = false; // para que el checador refresque
+        t.sincronizado = false;
       }
     }
 
@@ -290,8 +388,14 @@ const actualizarTrabajador = async (req, res) => {
       }
     });
 
-    const saved = await t.save();
-    res.status(200).json(saved);
+    await t.save();
+
+    // Devuelve historial normalizado
+    const limpio = await normalizeHistorialArray(t.historialSedes);
+    const plain = t.toObject();
+    plain.historialSedes = limpio;
+
+    res.status(200).json(plain);
   } catch (error) {
     console.error('❌ Error al actualizar trabajador:', error);
     res.status(500).json({ message: 'Error al actualizar trabajador' });
@@ -319,7 +423,7 @@ const obtenerAsistencias = async (req, res) => {
   }
 };
 
-// 🔁 Cambiar estado de sincronización (select de la tabla)
+// 🔁 Cambiar estado de sincronización
 const actualizarEstadoSincronizacion = async (req, res) => {
   try {
     const { id } = req.params;
@@ -348,4 +452,5 @@ module.exports = {
   obtenerAsistencias,
   actualizarEstadoSincronizacion,
   actualizarSedes,
+  repararHistorial,
 };
