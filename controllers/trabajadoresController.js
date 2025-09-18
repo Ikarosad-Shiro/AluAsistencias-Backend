@@ -123,6 +123,66 @@ const eliminarTrabajador = async (req, res) => {
   }
 };
 
+// ⚙️ Actualizar sede principal y sedes foráneas
+const actualizarSedes = async (req, res) => {
+  try {
+    const { id } = req.params;
+    let { sedePrincipal, sedesForaneas } = req.body;
+
+    // Validaciones y normalización
+    sedePrincipal = Number(sedePrincipal);
+    if (!sedePrincipal || Number.isNaN(sedePrincipal)) {
+      return res.status(400).json({ message: 'sedePrincipal inválida' });
+    }
+
+    sedesForaneas = Array.isArray(sedesForaneas)
+      ? sedesForaneas
+          .map(n => Number(n))
+          .filter(n => !Number.isNaN(n) && n !== sedePrincipal)
+      : [];
+
+    const trabajador = await Trabajador.findById(id);
+    if (!trabajador) {
+      return res.status(404).json({ message: 'Trabajador no encontrado' });
+    }
+
+    // ¿Cambió la principal?
+    const principalAnterior = Number(trabajador.sedePrincipal ?? trabajador.sede ?? NaN);
+    const cambioPrincipal = principalAnterior !== sedePrincipal;
+
+    // Historial: cerrar abiertos si cambió y abrir uno nuevo
+    if (cambioPrincipal) {
+      if (!Array.isArray(trabajador.historialSedes)) trabajador.historialSedes = [];
+      // Cierra cualquier registro abierto
+      trabajador.historialSedes.forEach(h => {
+        if (!h.fechaFin) h.fechaFin = new Date();
+      });
+
+      // Nombre de la sede para el historial
+      const sedeDoc = await Sede.findOne({ id: sedePrincipal });
+      trabajador.historialSedes.push({
+        idSede: sedePrincipal,
+        nombre: sedeDoc?.nombre || '',
+        fechaInicio: new Date(),
+        fechaFin: null
+      });
+    }
+
+    // Espejos y nuevos campos
+    trabajador.sede = sedePrincipal;            // compatibilidad
+    trabajador.sedePrincipal = sedePrincipal;   // campo nuevo
+    trabajador.sedesForaneas = [...new Set(sedesForaneas)];
+    trabajador.sincronizado = false;
+
+    const actualizado = await trabajador.save();
+    res.status(200).json(actualizado);
+  } catch (error) {
+    console.error('❌ Error en actualizarSedes:', error);
+    res.status(500).json({ message: 'Error al actualizar sedes' });
+  }
+};
+
+
 // 🔒 Verificar contraseña del usuario
 const verificarContraseña = async (req, res) => {
   try {
@@ -287,4 +347,5 @@ module.exports = {
   actualizarTrabajador,
   obtenerAsistencias,
   actualizarEstadoSincronizacion,
+  actualizarSedes,
 };
