@@ -168,7 +168,7 @@ router.get('/unificado/:id', async (req, res) => {
   }
 });
 
-// 🆕 Unificado por SEDE (reporte sede → mantiene filtro por sede estricta)
+// 🆕 Unificado por SEDE (con detección de "Otra Sede")
 router.get('/unificado-sede/:sedeId', async (req, res) => {
   try {
     const { sedeId } = req.params;
@@ -193,9 +193,19 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
 
     const resultados = [];
 
+    // helper local
+    const fmtHoraMX = (iso) =>
+      DateTime.fromJSDate(new Date(iso)).setZone('America/Mexico_City').toFormat('hh:mm a');
+
     for (const trabajador of trabajadores) {
-      const asistencias = await Asistencia.find({
-        trabajador: (trabajador.id_checador ?? '').toString(),
+      // ids posibles (por si hay históricos con _id en lugar de id_checador)
+      const idChecador = (trabajador.id_checador ?? '').toString();
+      const posiblesIds = [trabajador?._id?.toString()].filter(Boolean);
+      if (idChecador) posiblesIds.push(idChecador);
+
+      // A) Asistencias SOLO de esta sede (lo que ya hacías)
+      const asistenciasSede = await Asistencia.find({
+        trabajador: { $in: posiblesIds },
         sede: Number(sedeId),
         $or: [
           { fecha: { $gte: inicio, $lte: fin } },
@@ -203,6 +213,38 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
         ]
       }).lean();
 
+      // B) Asistencias de TODAS las sedes (para detectar "Otra Sede")
+      const asistenciasAll = await Asistencia.find({
+        trabajador: { $in: posiblesIds },
+        $or: [
+          { fecha: { $gte: inicio, $lte: fin } },
+          { 'detalle.fechaHora': { $gte: fechaInicio.toJSDate(), $lte: fechaFin.toJSDate() } }
+        ]
+      }).lean();
+
+      // índice: fecha (YYYY-MM-DD) -> Set(sedes con marcas ese día)
+      const marcasPorDiaSede = new Map(); // Map<string, Set<string>>
+      const addMarca = (f, s) => {
+        if (!f || s == null) return;
+        const key = f;
+        const val = String(s);
+        const set = marcasPorDiaSede.get(key) || new Set();
+        set.add(val);
+        marcasPorDiaSede.set(key, set);
+      };
+
+      (asistenciasAll || []).forEach((a) => {
+        // por campo "fecha" (string YYYY-MM-DD en tu modelo)
+        if (a?.fecha) addMarca(a.fecha, a.sede);
+        // por cada marca detalle (fechaHora + sede de marca o del doc)
+        (a?.detalle || []).forEach((d) => {
+          const f = isoDay(d?.fechaHora);
+          const s = (d?.sede != null) ? d.sede : a.sede;
+          addMarca(f, s);
+        });
+      });
+
+      // calendario personal (si lo usas)
       const calendarioTrabajador = await CalendarioTrabajador.findOne({
         trabajador: trabajador._id,
         $or: [{ anio: fechaInicio.year }, { ['año']: fechaInicio.year }]
@@ -214,57 +256,62 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
       while (cursor <= fechaFin) {
         const fechaStr = cursor.toISODate();
 
-        const entradas = asistencias
+        // entradas/salidas SOLO en sede actual
+        const entradas = asistenciasSede
           .flatMap((a) => a.detalle || [])
           .filter((d) => d.tipo === 'Entrada' && isoDay(d.fechaHora) === fechaStr);
-        const salidas = asistencias
+        const salidas = asistenciasSede
           .flatMap((a) => a.detalle || [])
           .filter((d) => d.tipo === 'Salida' && isoDay(d.fechaHora) === fechaStr);
 
-        const eventoTrab = calendarioTrabajador?.diasEspeciales?.find(
-          (e) => isoDay(e.fecha) === fechaStr
-        );
-        const eventoSed = calendarioSede?.diasEspeciales?.find(
-          (e) => isoDay(e.fecha) === fechaStr
-        );
+        const eventoTrab = calendarioTrabajador?.diasEspeciales?.find((e) => isoDay(e.fecha) === fechaStr);
+        const eventoSed  = calendarioSede?.diasEspeciales?.find((e) => isoDay(e.fecha) === fechaStr);
 
-        // Formato visual (para PDF de sede)
-        const fmt = (iso) =>
-          DateTime.fromJSDate(new Date(iso))
-            .setZone('America/Mexico_City')
-            .toFormat('hh:mm a');
+        let entrada = entradas.length ? fmtHoraMX(entradas[0].fechaHora) : '';
+        let salida  = salidas.length ? fmtHoraMX(salidas[salidas.length - 1].fechaHora) : '';
+        let estado  = '';
 
-        let entrada = entradas.length ? fmt(entradas[0].fechaHora) : '';
-        let salida = salidas.length ? fmt(salidas[salidas.length - 1].fechaHora) : '';
-
-        let estado = '';
+        // Jerarquía: eventoTrabajador > (entrada/salida) > eventoSede > Falta
         if (eventoTrab) {
-          if (
-            (eventoTrab.tipo || '').toLowerCase().trim() === 'asistencia' &&
-            eventoTrab.horaEntrada &&
-            eventoTrab.horaSalida
-          ) {
-            estado = '✅ Asistencia Manual';
+          const tipoEvt = (eventoTrab.tipo || '').toLowerCase().trim();
+          if (tipoEvt === 'asistencia' && eventoTrab.horaEntrada && eventoTrab.horaSalida) {
+            estado = 'Asistencia Manual';
             entrada = eventoTrab.horaEntrada;
-            salida = eventoTrab.horaSalida;
+            salida  = eventoTrab.horaSalida;
           } else {
-            estado = obtenerEmojiPorTipo(eventoTrab.tipo);
+            estado = eventoTrab.tipo;
             entrada = estado;
-            salida = '';
+            salida  = '';
           }
         } else if (entrada && salida) {
-          estado = '✅ Asistencia Completa';
+          estado = 'Asistencia Completa';
         } else if (entrada && !salida) {
-          estado = '⏳ Entrada sin salida';
+          estado = 'Salida Automática';
           salida = '⏳';
         } else if (eventoSed) {
-          estado = obtenerEmojiPorTipo(eventoSed.tipo);
+          estado = eventoSed.tipo;
           entrada = estado;
-          salida = '';
+          salida  = '';
         } else {
-          estado = '❌ Falta';
+          estado = 'Falta';
           entrada = '—';
-          salida = '—';
+          salida  = '—';
+        }
+
+        // 🔵 Detección "Otra Sede":
+        // si NO hubo nada en la sede actual (estado acabó en Falta / vacío real)
+        // y SÍ hubo marcas ese día en alguna otra sede distinta
+        if (
+          (!entradas.length && !salidas.length && !eventoTrab && !eventoSed) // sede actual "vacía"
+        ) {
+          const setSedes = marcasPorDiaSede.get(fechaStr) || new Set();
+          const hayEsta  = setSedes.has(String(sedeId));
+          const hayOtra  = [...setSedes].some(s => s !== String(sedeId));
+          if (!hayEsta && hayOtra) {
+            estado = 'Otra Sede';
+            entrada = '—';
+            salida  = '—';
+          }
         }
 
         datosPorDia[fechaStr] = { entrada, salida, estado };
