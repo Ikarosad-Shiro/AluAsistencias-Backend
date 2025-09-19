@@ -5,7 +5,15 @@ const Calendario = require('../models/Calendario');
 const verifyToken = require('../middleware/authMiddleware');
 const { requireRole } = require('../middleware/authMiddleware');
 
-const { toDay, getSundaysInRange, groupByYear } = require('../utils/date');
+// ✅ Helpers de fecha robustos (usa la versión que te pasé)
+const {
+  toDay,                 // normaliza a mediodía UTC
+  getSundaysInRange,     // devuelve domingos normalizados
+  groupByYear,           // agrupa por año (UTC)
+  toYmd,                 // Date/ISO/YMD -> 'YYYY-MM-DD'
+  ymdToNoonUTC           // 'YYYY-MM-DD' -> Date 12:00Z
+} = require('../utils/date');
+
 const { v4: uuidv4 } = require('uuid'); // npm i uuid
 
 // 💖 Ruta de prueba
@@ -44,10 +52,10 @@ router.get('/sede/:sede/anio/:anio', async (req, res) => {
   }
 });
 
-// ➕ Agregar un día especial
+// ➕ Agregar un día especial (idempotente por YMD, guarda 12:00Z)
 router.post('/agregar-dia', async (req, res) => {
   try {
-    const { año, sede, fecha, tipo, descripcion } = req.body;
+    const { año, sede, fecha, tipo, descripcion, horaInicio, horaFin } = req.body;
 
     if (!año || !sede || !fecha || !tipo) {
       return res.status(400).json({ message: 'Faltan campos obligatorios.' });
@@ -58,47 +66,53 @@ router.post('/agregar-dia', async (req, res) => {
       'media jornada', 'capacitación',
       'evento', 'suspensión'
     ];
-
     if (!tiposValidos.includes(tipo)) {
       return res.status(400).json({ message: `Tipo inválido. Debe ser uno de: ${tiposValidos.join(', ')}` });
     }
 
-    const fechaISO = new Date(fecha).toISOString().slice(0, 10);
+    // Normaliza a YYYY-MM-DD (estable)
+    const fechaYmd = toYmd(fecha);
 
+    // Trae/calienta el doc
     let calendario = await Calendario.findOne({ año, sedes: { $in: [sede] } });
-
     if (!calendario) {
       calendario = new Calendario({ año, sedes: [sede], diasEspeciales: [] });
     }
 
-    const existe = calendario.diasEspeciales.some(
-      d => d.fecha.toISOString().slice(0, 10) === fechaISO
-    );
-
+    // ¿Ya existe ese día? (comparación por YMD)
+    const existe = (calendario.diasEspeciales || []).some(d => toYmd(d.fecha) === fechaYmd);
     if (existe) {
-      return res.status(400).json({ message: 'Ese día ya está configurado.' });
+      // Usa 409 para que el front sepa que es duplicado (no error genérico)
+      return res.status(409).json({ message: 'Ese día ya está configurado.' });
     }
 
-    // ✅ Aseguramos que fecha sea Date
-    calendario.diasEspeciales.push({
-      fecha: new Date(fecha),
+    // Inserta como 12:00Z para evitar “corrimientos”
+    const nuevo = {
+      fecha: ymdToNoonUTC(fechaYmd),
       tipo,
       descripcion: descripcion || ''
-    });
+    };
 
+    // Si es media jornada y mandaron horas, déjalas (el modelo valida HH:mm)
+    if (tipo === 'media jornada') {
+      nuevo.horaInicio = horaInicio ?? null;
+      nuevo.horaFin = horaFin ?? null;
+    }
+
+    calendario.diasEspeciales.push(nuevo);
     await calendario.save();
 
-    res.json({ message: 'Día especial agregado con éxito', calendario });
+    res.status(201).json({ message: 'Día especial agregado con éxito', calendario });
   } catch (error) {
     console.error('❌ Error en /agregar-dia:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ✏️ Editar un día especial
+// ✏️ Editar un día especial (match por YMD)
 router.put('/editar-dia', async (req, res) => {
   try {
-    const { año, sede, fecha, tipo, descripcion } = req.body;
+    const { año, sede, fecha, tipo, descripcion, horaInicio, horaFin } = req.body;
 
     if (!año || !sede || !fecha || !tipo) {
       return res.status(400).json({ message: 'Faltan campos obligatorios.' });
@@ -109,19 +123,25 @@ router.put('/editar-dia', async (req, res) => {
       return res.status(404).json({ message: 'Calendario no encontrado.' });
     }
 
-    const fechaISO = new Date(fecha).toISOString().slice(0, 10);
+    const fechaYmd = toYmd(fecha);
 
-    const dia = calendario.diasEspeciales.find(
-      d => d.fecha.toISOString().slice(0, 10) === fechaISO
-    );
-
+    const dia = (calendario.diasEspeciales || []).find(d => toYmd(d.fecha) === fechaYmd);
     if (!dia) {
       return res.status(404).json({ message: 'Día no encontrado en el calendario.' });
     }
 
-    // Actualizar campos
+    // Actualiza campos
     dia.tipo = tipo;
     dia.descripcion = descripcion || '';
+
+    if (tipo === 'media jornada') {
+      dia.horaInicio = horaInicio ?? dia.horaInicio ?? null;
+      dia.horaFin = horaFin ?? dia.horaFin ?? null;
+    } else {
+      // El pre('validate') del modelo limpia horas en otros tipos, pero por claridad:
+      dia.horaInicio = null;
+      dia.horaFin = null;
+    }
 
     await calendario.save();
     res.json({ message: 'Día actualizado correctamente', calendario });
@@ -131,24 +151,18 @@ router.put('/editar-dia', async (req, res) => {
   }
 });
 
-// ❌ Eliminar un día especial
+// ❌ Eliminar un día especial (match por YMD)
 router.delete('/eliminar-dia', async (req, res) => {
   try {
     const { año, sede, fecha } = req.body;
 
-    console.log('🧨 Petición para eliminar día:', { año, sede, fecha });
-
     const calendario = await Calendario.findOne({ año, sedes: { $in: [sede] } });
     if (!calendario) return res.status(404).json({ message: 'Calendario no encontrado.' });
 
-    const fechaISO = new Date(fecha).toISOString().slice(0, 10);
+    const fechaYmd = toYmd(fecha);
 
-    const cantidadAntes = calendario.diasEspeciales.length;
-
-    calendario.diasEspeciales = calendario.diasEspeciales.filter(
-      d => d.fecha.toISOString().slice(0, 10) !== fechaISO
-    );
-
+    const cantidadAntes = (calendario.diasEspeciales || []).length;
+    calendario.diasEspeciales = (calendario.diasEspeciales || []).filter(d => toYmd(d.fecha) !== fechaYmd);
     const cantidadDespues = calendario.diasEspeciales.length;
 
     if (cantidadAntes === cantidadDespues) {
@@ -156,8 +170,6 @@ router.delete('/eliminar-dia', async (req, res) => {
     }
 
     await calendario.save();
-
-    console.log('✅ Día eliminado correctamente.');
     res.json({ message: 'Día eliminado del calendario', calendario });
   } catch (error) {
     console.error('❌ Error al eliminar día:', error);
@@ -165,7 +177,7 @@ router.delete('/eliminar-dia', async (req, res) => {
   }
 });
 
-// 🕊️ PREVIEW asistente de domingo
+// 🕊️ PREVIEW asistente de domingo (devuelve fechas en YMD)
 router.post('/asistente-domingo/preview',
   verifyToken, requireRole(['Administrador', 'Dios']),
   async (req, res) => {
@@ -182,8 +194,10 @@ router.post('/asistente-domingo/preview',
       const diffDays = Math.ceil((end - start) / 86400000) + 1;
       if (diffDays > maxDays) return res.status(400).json({ message: `Rango demasiado grande (>${maxDays} días)` });
 
-      const domingos = getSundaysInRange(start, end);
-      if (!domingos.length) return res.json({ totalDomingos: 0, aCrear: 0, conEvento: 0, sedesProcesadas: sedeIds.length, detalle: [] });
+      const domingos = getSundaysInRange(start, end); // Dates a 12:00Z
+      if (!domingos.length) {
+        return res.json({ totalDomingos: 0, aCrear: 0, conEvento: 0, sedesProcesadas: sedeIds.length, detalle: [] });
+      }
 
       const porAño = groupByYear(domingos);
       const años = Object.keys(porAño).map(Number);
@@ -196,7 +210,7 @@ router.post('/asistente-domingo/preview',
       // year|sede -> Set('YYYY-MM-DD')
       const existing = new Map();
       for (const doc of docs) {
-        const fechasSet = new Set((doc.diasEspeciales || []).map(e => new Date(e.fecha).toISOString().slice(0,10)));
+        const fechasSet = new Set((doc.diasEspeciales || []).map(e => toYmd(e.fecha)));
         for (const s of doc.sedes) existing.set(`${doc.año}|${s}`, fechasSet);
       }
 
@@ -205,10 +219,15 @@ router.post('/asistente-domingo/preview',
 
       for (const sede of sedeIds) {
         for (const d of domingos) {
-          const iso = d.toISOString().slice(0,10);
+          const ymd = toYmd(d);
           const set = existing.get(`${d.getUTCFullYear()}|${sede}`);
-          if (set && set.has(iso)) { conEvento++; detalle.push({ sede, fecha: d, motivo: 'ocupado' }); }
-          else { aCrear++; detalle.push({ sede, fecha: d, motivo: 'crear' }); }
+          if (set && set.has(ymd)) {
+            conEvento++;
+            detalle.push({ sede, fechaYmd: ymd, motivo: 'ocupado' });
+          } else {
+            aCrear++;
+            detalle.push({ sede, fechaYmd: ymd, motivo: 'crear' });
+          }
         }
       }
 
@@ -224,7 +243,7 @@ router.post('/asistente-domingo/preview',
   }
 );
 
-// ✅ APPLY asistente de domingo (bulk idempotente)
+// ✅ APPLY asistente de domingo (bulk idempotente, guarda 12:00Z)
 router.post('/asistente-domingo/apply',
   verifyToken, requireRole(['Administrador', 'Dios']),
   async (req, res) => {
@@ -236,7 +255,7 @@ router.post('/asistente-domingo/apply',
 
       const start = toDay(inicio);
       const end   = toDay(fin);
-      const domingos = getSundaysInRange(start, end);
+      const domingos = getSundaysInRange(start, end); // Dates a 12:00Z
       if (!domingos.length) return res.json({ batchId: null, created: 0, skipped: 0 });
 
       const batchId = uuidv4();
@@ -261,14 +280,20 @@ router.post('/asistente-domingo/apply',
         for (const sede of sedeIds) {
           const doc = docBySede.get(sede);
           const existentesSet = new Set(
-            (doc?.diasEspeciales || []).map(e => new Date(e.fecha).toISOString().slice(0,10))
+            (doc?.diasEspeciales || []).map(e => toYmd(e.fecha))
           );
 
-          const faltantes = fechas.filter(d => !existentesSet.has(d.toISOString().slice(0,10)));
-          if (!faltantes.length) { skipped += fechas.length; continue; }
+          // candidatos en YMD
+          const candidatosYmd = fechas.map(d => toYmd(d));
+          const faltantesYmd = candidatosYmd.filter(ymd => !existentesSet.has(ymd));
 
-          const nuevos = faltantes.map(d => ({
-            fecha: d,
+          if (!faltantesYmd.length) {
+            skipped += candidatosYmd.length;
+            continue;
+          }
+
+          const nuevos = faltantesYmd.map(ymd => ({
+            fecha: ymdToNoonUTC(ymd),
             tipo: 'descanso',
             descripcion,
             source: 'asistente-domingo',
@@ -287,7 +312,7 @@ router.post('/asistente-domingo/apply',
           }
 
           created += nuevos.length;
-          skipped += (fechas.length - nuevos.length);
+          skipped += (candidatosYmd.length - nuevos.length);
         }
       }
 
@@ -317,6 +342,5 @@ router.post('/asistente-domingo/undo',
     }
   }
 );
-
 
 module.exports = router;

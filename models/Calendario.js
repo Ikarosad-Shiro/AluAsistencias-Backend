@@ -2,12 +2,13 @@
 const mongoose = require('mongoose');
 
 // ---------- Helpers ----------
+// HH:mm estricto (02 dígitos por componente)
 const HHMM_STRICT = /^(\d{2}):(\d{2})$/;
 
+// Acepta "9:05" o "09:05" y normaliza a "09:05"
 const normalizeHHMM = (val) => {
   if (val === undefined || val === null || val === '') return null;
   const s = String(val).trim();
-  // Acepta "9:05" o "09:05" y normaliza a "09:05"
   const m = s.match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return s; // si viene raro, el validador de abajo lo detiene
   let h = parseInt(m[1], 10);
@@ -20,17 +21,46 @@ const normalizeHHMM = (val) => {
 const toMinutes = (hhmm) =>
   parseInt(hhmm.slice(0, 2), 10) * 60 + parseInt(hhmm.slice(3), 10);
 
-// Normaliza la fecha a medianoche UTC (YYYY-MM-DDT00:00:00.000Z)
-const normalizeDateToUTC0 = (d) => {
+// --- Manejo de fechas "a prueba de TZ" ---
+// Usamos MEDIODÍA UTC para evitar corrimientos de día al serializar/deserializar
+const NOON_UTC_HOUR = 12;
+const YMD_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+function isYmdString(v) {
+  return typeof v === 'string' && YMD_REGEX.test(v);
+}
+
+// 'YYYY-MM-DD' -> Date 12:00:00.000Z
+function ymdToNoonUTC(ymd) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, NOON_UTC_HOUR, 0, 0, 0));
+}
+
+// Cualquier cosa parseable -> mismo día a las 12:00:00.000Z (usando campos UTC)
+function normalizeDateToUTCNoon(d) {
   if (!d) return d;
+  if (isYmdString(d)) return ymdToNoonUTC(d);
+
   const dt = new Date(d);
-  return new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()));
-};
+  if (isNaN(dt.getTime())) return d; // deja que Mongoose falle si es inválida
+
+  return new Date(Date.UTC(
+    dt.getUTCFullYear(),
+    dt.getUTCMonth(),
+    dt.getUTCDate(),
+    NOON_UTC_HOUR, 0, 0, 0
+  ));
+}
 
 // ---------- Subdocumento: Día Especial ----------
 const diaEspecialSchema = new mongoose.Schema(
   {
-    fecha: { type: Date, required: true },
+    // Normalizamos en el setter a 12:00Z para evitar off-by-one
+    fecha: {
+      type: Date,
+      required: true,
+      set: normalizeDateToUTCNoon
+    },
 
     tipo: {
       type: String,
@@ -61,15 +91,14 @@ const diaEspecialSchema = new mongoose.Schema(
   { _id: true }
 );
 
-// Validaciones “pro” y normalización de fecha
+// Validaciones y limpieza de horas
 diaEspecialSchema.pre('validate', function (next) {
-  // Normaliza fecha a 00:00:00Z
+  // Asegura que, si alguien cambió fecha luego del setter, quede a 12:00Z
   if (this.isModified('fecha') && this.fecha) {
-    this.fecha = normalizeDateToUTC0(this.fecha);
+    this.fecha = normalizeDateToUTCNoon(this.fecha);
   }
 
   if (this.tipo === 'media jornada') {
-    // Requiere horas válidas
     if (!HHMM_STRICT.test(this.horaInicio || '') || !HHMM_STRICT.test(this.horaFin || '')) {
       return next(new Error('Media jornada requiere horaInicio y horaFin en formato HH:mm'));
     }
@@ -93,8 +122,8 @@ const calendarioSchema = new mongoose.Schema({
 });
 
 // Índices para acelerar las consultas típicas
-calendarioSchema.index({ año: 1, sedes: 1 });                       // findOne({año, sedes: {$in: [sede]}})
-calendarioSchema.index({ año: 1, 'diasEspeciales.fecha': 1 });      // filtrar por fecha dentro de un año
+calendarioSchema.index({ año: 1, sedes: 1 });                  // findOne({año, sedes: {$in: [sede]}})
+calendarioSchema.index({ año: 1, 'diasEspeciales.fecha': 1 }); // filtrar por fecha dentro de un año
 
 // Limpieza de salida JSON
 calendarioSchema.set('toJSON', {
