@@ -175,11 +175,12 @@ router.get('/unificado/:id', async (req, res) => {
   }
 });
 
-// 🆕 Unificado por SEDE (con detección de "Otra Sede")
+// 🆕 Unificado por SEDE (con horas de "Otra Sede" y sin arrastrar día por solo-salida)
 router.get('/unificado-sede/:sedeId', async (req, res) => {
   try {
     const { sedeId } = req.params;
     const { inicio, fin } = req.query;
+    const { DateTime } = require('luxon');
 
     if (!inicio || !fin) {
       return res.status(400).json({ message: "Parámetros 'inicio' y 'fin' requeridos." });
@@ -187,28 +188,26 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
 
     const fechaInicio = DateTime.fromISO(inicio).startOf('day');
     const fechaFin    = DateTime.fromISO(fin).endOf('day');
-    const sedeIdStr   = String(sedeId);
 
-    // Helper local (día YYYY-MM-DD en zona CDMX)
+    const Trabajador = require('../models/Trabajador');
+    const Asistencia = require('../models/Asistencia');
+    const Calendario = require('../models/Calendario');
+    const CalendarioTrabajador = require('../models/CalendarioTrabajador');
+
+    const ZONE = 'America/Mexico_City';
     const isoDay = (d) => {
       if (!d) return '';
-      const dt = typeof d === 'string'
-        ? DateTime.fromISO(d)
-        : DateTime.fromJSDate(new Date(d));
-      return dt.setZone('America/Mexico_City').toISODate();
+      const dt = typeof d === 'string' ? DateTime.fromISO(d) : DateTime.fromJSDate(new Date(d));
+      return dt.setZone(ZONE).toISODate();
     };
-
-    // Helper local (hora hh:mm a en CDMX)
     const fmtHoraMX = (iso) =>
-      DateTime.fromJSDate(new Date(iso)).setZone('America/Mexico_City').toFormat('hh:mm a');
+      DateTime.fromJSDate(new Date(iso)).setZone(ZONE).toFormat('hh:mm a');
 
-    // Trabajadores de la sede
     const trabajadores = await Trabajador.find({ sede: Number(sedeId) }).lean();
     if (!trabajadores.length) {
       return res.status(404).json({ message: 'No hay trabajadores en esta sede.' });
     }
 
-    // Calendario de la sede (año del inicio; si manejas rangos multi-año, duplica para cada año)
     const calendarioSede = await Calendario.findOne({
       sedes: Number(sedeId),
       $or: [{ anio: fechaInicio.year }, { ['año']: fechaInicio.year }]
@@ -217,12 +216,11 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
     const resultados = [];
 
     for (const trabajador of trabajadores) {
-      // Posibles IDs guardados en Asistencia.trabajador (id_checador string y fallback _id)
-      const idChecador  = (trabajador.id_checador ?? '').toString();
+      const idChecador = (trabajador.id_checador ?? '').toString();
       const posiblesIds = [trabajador?._id?.toString()].filter(Boolean);
       if (idChecador) posiblesIds.push(idChecador);
 
-      // A) Asistencias SOLO en la sede actual (para entrada/salida visibles en la tabla)
+      // A) Solo sede actual (para celdas normales)
       const asistenciasSede = await Asistencia.find({
         trabajador: { $in: posiblesIds },
         sede: Number(sedeId),
@@ -232,7 +230,7 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
         ]
       }).lean();
 
-      // B) Asistencias del mismo trabajador en TODAS las sedes (para detectar “Otra Sede”)
+      // B) Todas las sedes (para detectar "Otra Sede" y extraer horas de ese día)
       const asistenciasAll = await Asistencia.find({
         trabajador: { $in: posiblesIds },
         $or: [
@@ -241,100 +239,85 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
         ]
       }).lean();
 
-      // Índice fecha -> Set<idSede> con marcas ese día (de cualquier sede)
-      const marcasPorDiaSede = new Map(); // Map<string, Set<string>>
-      const addMarca = (f, s) => {
-        if (!f || s == null) return;
-        const set = marcasPorDiaSede.get(f) || new Set();
-        set.add(String(s));
-        marcasPorDiaSede.set(f, set);
-      };
+      // Índice: fecha -> { entradaISO?, salidaISO? } SOLO de sedes != sedeId
+      const horasOtraSede = new Map(); // Map<string, {entradaISO?:string, salidaISO?:string}>
       (asistenciasAll || []).forEach((a) => {
-        if (a?.fecha) addMarca(a.fecha, a.sede);
+        const sedeDoc = a?.sede;
         (a?.detalle || []).forEach((d) => {
           const f = isoDay(d?.fechaHora);
-          const s = (d?.sede != null) ? d.sede : a.sede;
-          addMarca(f, s);
+          const sedeReg = (d?.sede != null) ? d.sede : sedeDoc;
+          if (!f || String(sedeReg) === String(sedeId)) return; // solo otras sedes
+
+          const cur = horasOtraSede.get(f) || {};
+          if (d?.tipo === 'Entrada') {
+            if (!cur.entradaISO || new Date(d.fechaHora) < new Date(cur.entradaISO)) cur.entradaISO = d.fechaHora;
+          }
+          if (String(d?.tipo || '').startsWith('Salida')) {
+            if (!cur.salidaISO || new Date(d.fechaHora) > new Date(cur.salidaISO)) cur.salidaISO = d.fechaHora;
+          }
+          horasOtraSede.set(f, cur);
         });
       });
 
-      // Calendario personal del trabajador (si lo usas)
       const calendarioTrabajador = await CalendarioTrabajador.findOne({
         trabajador: trabajador._id,
         $or: [{ anio: fechaInicio.year }, { ['año']: fechaInicio.year }]
       }).lean();
 
-      // Recorre día por día en el rango
       const datosPorDia = {};
       let cursor = fechaInicio;
 
       while (cursor <= fechaFin) {
         const fechaStr = cursor.toISODate();
 
-        // Entradas/Salidas SOLO en sede actual
         const entradas = asistenciasSede
           .flatMap((a) => a.detalle || [])
           .filter((d) => d.tipo === 'Entrada' && isoDay(d.fechaHora) === fechaStr);
-
         const salidas = asistenciasSede
           .flatMap((a) => a.detalle || [])
-          .filter((d) => (d.tipo === 'Salida' || (d.tipo || '').startsWith('Salida')) && isoDay(d.fechaHora) === fechaStr);
+          .filter((d) => d.tipo === 'Salida' && isoDay(d.fechaHora) === fechaStr);
 
         const eventoTrab = calendarioTrabajador?.diasEspeciales?.find((e) => isoDay(e.fecha) === fechaStr);
         const eventoSed  = calendarioSede?.diasEspeciales?.find((e) => isoDay(e.fecha) === fechaStr);
 
-        // Valores por defecto del día
         let entrada = entradas.length ? fmtHoraMX(entradas[0].fechaHora) : '';
         let salida  = salidas.length ? fmtHoraMX(salidas[salidas.length - 1].fechaHora) : '';
         let estado  = '';
 
-        // Jerarquía:
-        // 1) Evento del trabajador
+        // Jerarquía base
         if (eventoTrab) {
           const tipoEvt = (eventoTrab.tipo || '').toLowerCase().trim();
           if (tipoEvt === 'asistencia' && eventoTrab.horaEntrada && eventoTrab.horaSalida) {
-            estado  = 'Asistencia Manual';
+            estado = 'Asistencia Manual';
             entrada = eventoTrab.horaEntrada;
             salida  = eventoTrab.horaSalida;
           } else {
-            estado  = eventoTrab.tipo;
+            estado = eventoTrab.tipo;
             entrada = estado;
             salida  = '';
           }
-        }
-        // 2) Entrada y salida registradas en la sede actual
-        else if (entrada && salida) {
+        } else if (entrada && salida) {
           estado = 'Asistencia Completa';
-        }
-        // 3) Entrada sin salida (mismo día)
-        else if (entrada && !salida) {
+        } else if (entrada && !salida) {
           estado = 'Salida Automática';
           salida = '⏳';
-        }
-        // 4) Evento de la sede (festivo/descanso/etc.)
-        else if (eventoSed) {
-          estado  = eventoSed.tipo;
+        } else if (eventoSed) {
+          estado = eventoSed.tipo;
           entrada = estado;
           salida  = '';
-        }
-        // 5) Falta (por defecto)
-        else {
-          estado  = 'Falta';
+        } else {
+          estado = 'Falta';
           entrada = '—';
           salida  = '—';
         }
 
-        // 🔵 Detección “Otra Sede”:
-        // si NO hubo nada en la sede actual (sin entradas, sin salidas y sin eventos)
-        // y SÍ hubo marcas ese día en alguna otra sede distinta
+        // 🔵 "Otra Sede": solo si NO hubo nada en sede actual y SÍ hay ENTRADA en otra sede ese día
         if (!entradas.length && !salidas.length && !eventoTrab && !eventoSed) {
-          const setSedes = marcasPorDiaSede.get(fechaStr) || new Set();
-          const hayEsta  = setSedes.has(sedeIdStr);
-          const hayOtra  = [...setSedes].some((s) => s !== sedeIdStr);
-          if (!hayEsta && hayOtra) {
+          const otras = horasOtraSede.get(fechaStr);
+          if (otras?.entradaISO) {
             estado  = 'Otra Sede';
-            entrada = '—';
-            salida  = '—';
+            entrada = fmtHoraMX(otras.entradaISO);
+            salida  = otras.salidaISO ? fmtHoraMX(otras.salidaISO) : '—';
           }
         }
 
@@ -349,14 +332,14 @@ router.get('/unificado-sede/:sedeId', async (req, res) => {
       });
     }
 
-    return res.json({
+    res.json({
       sede: Number(sedeId),
       rango: { inicio, fin },
       trabajadores: resultados
     });
   } catch (error) {
     console.error('❌ Error en /unificado-sede:', error);
-    return res.status(500).json({ message: 'Error al obtener datos por sede.', error });
+    res.status(500).json({ message: 'Error al obtener datos por sede.', error });
   }
 });
 
