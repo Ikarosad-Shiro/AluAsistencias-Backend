@@ -83,10 +83,11 @@ router.get('/reporte/trabajador/:trabajadorId', obtenerReportePorTrabajador);
 
 // 📌 Ruta unificada para PDF/Excel del TRABAJADOR
 //     (multi-sede para asistencias, calendario de sede principal)
+//     🔁 NUEVO: si se pasa ?ignorarSede=true, NO se filtra por sede (para el calendario del detalle).
 router.get('/unificado/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { inicio, fin, soloSedePrincipal } = req.query;
+    const { inicio, fin, soloSedePrincipal, ignorarSede } = req.query;
 
     if (!inicio || !fin) {
       return res.status(400).json({ message: "Parámetros 'inicio' y 'fin' requeridos." });
@@ -110,9 +111,13 @@ router.get('/unificado/:id', async (req, res) => {
     const posiblesIds = [trabajador?._id?.toString()].filter(Boolean);
     if (idChecador) posiblesIds.push(idChecador);
 
-    // 🔧 Filtro de sede (misma lógica que el controller)
+    // 🔧 Filtro de sede
+    //     - Por defecto: misma lógica previa (respeta principal/foráneas).
+    //     - Si ignorarSede === 'true': NO filtramos por sede (para mezclar todas en el calendario).
     let filtroSede = {};
-    if (soloSedePrincipal === 'true') {
+    if (ignorarSede === 'true') {
+      filtroSede = {};
+    } else if (soloSedePrincipal === 'true') {
       filtroSede = (sedeBase != null) ? { sede: sedeBase } : {};
     } else if ((sedesPermitidas || []).length) {
       filtroSede = { sede: { $in: sedesPermitidas } };
