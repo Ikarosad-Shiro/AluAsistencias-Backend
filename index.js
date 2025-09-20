@@ -35,7 +35,7 @@ app.use(compression());
 app.set("trust proxy", 1);
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
-    max: 100,
+    max: 600,
     message: "⚠️ Demasiadas peticiones. Intenta de nuevo más tarde."
 });
 app.use(limiter);
