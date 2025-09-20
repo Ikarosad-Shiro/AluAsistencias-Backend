@@ -91,5 +91,6 @@ TrabajadorSchema.pre('findOneAndUpdate', function (next) {
 TrabajadorSchema.index({ id_checador: 1 });
 TrabajadorSchema.index({ sedePrincipal: 1 });
 TrabajadorSchema.index({ estado: 1 });
+TrabajadorSchema.index({ estado: 1, nuevoIngreso: 1, fechaAlta: 1 });
 
 module.exports = mongoose.model('Trabajador', TrabajadorSchema);
