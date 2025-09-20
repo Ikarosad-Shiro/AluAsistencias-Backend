@@ -1,33 +1,32 @@
+// models/Trabajador.js
 const mongoose = require('mongoose');
+// (opcional) si quieres normalizar fecha a CDMX:
+// const { DateTime } = require('luxon');
+// const ZONE = 'America/Mexico_City';
 
 const TrabajadorSchema = new mongoose.Schema({
   nombre: { type: String, required: true, trim: true },
 
-  // 🧭 Sede principal + espejo legacy
-  sede: { type: Number, default: null },            // espejo para compatibilidad
+  sede: { type: Number, default: null },
   sedePrincipal: { type: Number, default: null },
-
-  // 🌎 Foráneas (sin límite; deduplicadas y sin la principal)
   sedesForaneas: { type: [Number], default: [] },
 
-  // ⏱️ Checador
-  id_checador: { type: Number, required: true, unique: false }, // pon unique:true cuando no tengas duplicados
+  id_checador: { type: Number, required: true, unique: false },
 
-  // 🔄 Estado de sincronización
   sincronizado: { type: Boolean, default: false },
 
-  // 📇 Datos de contacto
   correo: { type: String, default: '' },
   telefono: { type: String, default: '' },
   telefonoEmergencia: { type: String, default: '' },
   direccion: { type: String, default: '' },
   puesto: { type: String, default: '' },
 
-  // 🚥 Estatus laboral
   estado: { type: String, enum: ['activo', 'inactivo'], default: 'activo' },
+
+  // 🆕 Nuevo ingreso + fechaAlta
+  nuevoIngreso: { type: Boolean, default: false },
   fechaAlta: { type: Date, default: null },
 
-  // 🗂️ Historial de sedes
   historialSedes: [{
     idSede: Number,
     nombre: String,
@@ -36,11 +35,7 @@ const TrabajadorSchema = new mongoose.Schema({
   }]
 }, { timestamps: true, collection: 'trabajadores' });
 
-/* =========================
-   Setters / Hooks de limpieza
-   ========================= */
-
-// Quita duplicados y la principal de sedesForaneas
+// Limpieza de foráneas como ya lo tenías…
 TrabajadorSchema.path('sedesForaneas').set(function (v) {
   const arr = Array.isArray(v) ? v.map(Number).filter(n => !Number.isNaN(n)) : [];
   const principal = this.sedePrincipal ?? this.sede ?? null;
@@ -48,16 +43,23 @@ TrabajadorSchema.path('sedesForaneas').set(function (v) {
   return principal == null ? unique : unique.filter(x => x !== Number(principal));
 });
 
-// Espejo sede <-> sedePrincipal en save
+// Espejo sede <-> sedePrincipal
 TrabajadorSchema.pre('save', function (next) {
   if (this.isModified('sedePrincipal')) this.sede = this.sedePrincipal;
   if (this.isModified('sede') && (this.sedePrincipal == null || this.isModified('sede'))) {
     this.sedePrincipal = this.sede;
   }
+
+  // 🆕 Si viene nuevoIngreso=true y no hay fechaAlta, le ponemos hoy (UTC simple).
+  if (this.nuevoIngreso && !this.fechaAlta) {
+    this.fechaAlta = new Date();
+    // (opcional con CDMX):
+    // this.fechaAlta = DateTime.now().setZone(ZONE).startOf('day').toJSDate();
+  }
   next();
 });
 
-// Espejo + limpieza en updates tipo findOneAndUpdate
+// También contempla updates findOneAndUpdate
 TrabajadorSchema.pre('findOneAndUpdate', function (next) {
   const update = this.getUpdate() || {};
   const $set = update.$set || update;
@@ -73,14 +75,18 @@ TrabajadorSchema.pre('findOneAndUpdate', function (next) {
     $set.sedesForaneas = arr;
   }
 
+  // 🆕 Normaliza fechaAlta si viene como string y falta cuando nuevoIngreso=true
+  if ($set.nuevoIngreso === true && ($set.fechaAlta == null)) {
+    $set.fechaAlta = new Date();
+    // (opcional CDMX):
+    // $set.fechaAlta = DateTime.now().setZone(ZONE).startOf('day').toJSDate();
+  }
+
   if (!update.$set && update !== $set) this.setUpdate($set);
   next();
 });
 
-/* =========
-   Índices
-   ========= */
-TrabajadorSchema.index({ id_checador: 1 }); // cambia a { unique: true } cuando limpies duplicados
+TrabajadorSchema.index({ id_checador: 1 });
 TrabajadorSchema.index({ sedePrincipal: 1 });
 TrabajadorSchema.index({ estado: 1 });
 

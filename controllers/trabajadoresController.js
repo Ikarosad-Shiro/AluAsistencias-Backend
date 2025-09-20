@@ -1,12 +1,13 @@
+// controllers/trabajadoresController.js
 const Trabajador = require('../models/Trabajador');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Asistencia = require('../models/Asistencia');
 const Sede = require('../models/Sede');
 
-// =========================
-// Helpers
-// =========================
+/* =========================
+   Helpers
+   ========================= */
 const toNum = (v) =>
   v === undefined || v === null || v === '' || Number.isNaN(Number(v))
     ? null
@@ -14,6 +15,13 @@ const toNum = (v) =>
 
 const uniqNums = (arr = []) =>
   [...new Set((Array.isArray(arr) ? arr : []).map(n => Number(n)))];
+
+// Parse seguro de fecha (acepta 'YYYY-MM-DD' o ISO; si falla, null)
+const parseFecha = (v) => {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+};
 
 // Normaliza un arreglo de historial (solo en memoria, para respuesta)
 const normalizeHistorialArray = async (arr = []) => {
@@ -117,16 +125,17 @@ const repairAndPersistHistorial = async (trabajador) => {
   return trabajador;
 };
 
-// =========================
-// Controladores
-// =========================
+/* =========================
+   Controladores
+   ========================= */
 
 // 🔥 Obtener todos los trabajadores
+// ✅ Incluye nuevoIngreso y fechaAlta para que el front los vea
 const obtenerTrabajadores = async (_req, res) => {
   try {
     const trabajadores = await Trabajador.find(
       {},
-      '_id nombre sede sedePrincipal sedesForaneas id_checador sincronizado estado'
+      '_id nombre sede sedePrincipal sedesForaneas id_checador sincronizado estado nuevoIngreso fechaAlta correo telefono telefonoEmergencia direccion puesto historialSedes createdAt updatedAt'
     );
     res.status(200).json(trabajadores);
   } catch (error) {
@@ -136,6 +145,7 @@ const obtenerTrabajadores = async (_req, res) => {
 };
 
 // 🔥 Agregar un nuevo trabajador (multisede + espejo 'sede')
+// ✅ Guarda nuevoIngreso y fechaAlta (si no envías fecha y nuevoIngreso=true, pone hoy)
 const agregarTrabajador = async (req, res) => {
   try {
     const {
@@ -144,7 +154,9 @@ const agregarTrabajador = async (req, res) => {
       sedePrincipal,
       sedesForaneas = [],
       correo, telefono, telefonoEmergencia, direccion, puesto,
-      estado, sincronizado, fechaAlta,
+      estado, sincronizado,
+      nuevoIngreso = false,       // 🆕
+      fechaAlta,                  // 🆕
       id_checador
     } = req.body;
 
@@ -165,6 +177,10 @@ const agregarTrabajador = async (req, res) => {
     const foraneas = uniqNums(sedesForaneas).filter(id => id !== principal);
     const ahora = new Date();
 
+    const fechaAltaFinal = nuevoIngreso
+      ? (parseFecha(fechaAlta) || new Date(new Date().toDateString())) // “hoy” a 00:00 local
+      : null;
+
     const nuevoTrabajador = new Trabajador({
       nombre: nombre.trim(),
       sede: principal,               // compat
@@ -184,7 +200,9 @@ const agregarTrabajador = async (req, res) => {
       direccion: direccion || '',
       puesto: puesto || '',
       estado: estado || 'activo',
-      fechaAlta: fechaAlta ? new Date(fechaAlta) : null
+      // 🆕 Guardado real
+      nuevoIngreso: !!nuevoIngreso,
+      fechaAlta: fechaAltaFinal
     });
 
     await nuevoTrabajador.save();
@@ -322,6 +340,7 @@ const obtenerTrabajadorPorId = async (req, res) => {
 };
 
 // 🔄 Actualizar un trabajador (sede principal/foráneas/estado/historial/sincronizado/etc.)
+// ✅ Soporta toggle de nuevoIngreso/fechaAlta
 const actualizarTrabajador = async (req, res) => {
   try {
     const { id } = req.params;
@@ -380,13 +399,29 @@ const actualizarTrabajador = async (req, res) => {
     // ===== CAMPOS SIMPLES =====
     const simples = [
       'nombre', 'correo', 'telefono', 'telefonoEmergencia',
-      'direccion', 'puesto', 'sincronizado', 'fechaAlta'
+      'direccion', 'puesto', 'sincronizado'
     ];
     simples.forEach(k => {
       if (Object.prototype.hasOwnProperty.call(body, k)) {
-        t[k] = (k === 'fechaAlta' && body[k]) ? new Date(body[k]) : body[k];
+        t[k] = body[k];
       }
     });
+
+    // ===== NUEVO INGRESO / FECHA ALTA =====
+    if (Object.prototype.hasOwnProperty.call(body, 'nuevoIngreso')) {
+      const ni = !!body.nuevoIngreso;
+      t.nuevoIngreso = ni;
+      if (ni) {
+        // Si mandas fecha, la usamos; si no, ponemos “hoy”
+        t.fechaAlta = parseFecha(body.fechaAlta) || new Date(new Date().toDateString());
+      } else {
+        t.fechaAlta = null;
+      }
+    } else if (Object.prototype.hasOwnProperty.call(body, 'fechaAlta')) {
+      // Si solo mandas fechaAlta sin tocar nuevoIngreso, la aplicamos (si es válida)
+      const f = parseFecha(body.fechaAlta);
+      if (f) t.fechaAlta = f;
+    }
 
     await t.save();
 
