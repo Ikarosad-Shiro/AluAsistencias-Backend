@@ -26,6 +26,8 @@ const TrabajadorSchema = new mongoose.Schema({
   // 🆕 Nuevo ingreso + fechaAlta
   nuevoIngreso: { type: Boolean, default: false },
   fechaAlta: { type: Date, default: null },
+  // models/Trabajador.js
+  fechaFinNuevoIngreso: { type: Date, default: null },
 
   historialSedes: [{
     idSede: Number,

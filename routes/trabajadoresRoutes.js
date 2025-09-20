@@ -36,4 +36,7 @@ router.get('/:id/asistencias', authMiddleware, trabajadoresController.obtenerAsi
 // 📌 Cambiar estado de sincronización (Sincronizado <-> Pendiente)
 router.put('/sincronizacion/:id', authMiddleware, trabajadoresController.actualizarEstadoSincronizacion);
 
+// 📌 Obtener nuevo ingresos
+router.post('/_cron/cerrar-nuevo-ingreso', authMiddleware, trabajadoresController.cerrarNuevoIngresoMasivo);
+
 module.exports = router;

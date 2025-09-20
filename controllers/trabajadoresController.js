@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Asistencia = require('../models/Asistencia');
 const Sede = require('../models/Sede');
+const { autoCerrarNuevoIngreso } = require('../utils/autoCerrarNuevoIngreso');
 
 /* =========================
    Helpers
@@ -477,6 +478,25 @@ const actualizarEstadoSincronizacion = async (req, res) => {
   }
 };
 
+// 🔁 Cerrar "nuevoIngreso" en lote (Admin/Dios)
+const cerrarNuevoIngresoMasivo = async (req, res) => {
+  try {
+    const rol = req.user?.rol;
+    if (rol !== 'Administrador' && rol !== 'Dios') {
+      return res.status(403).json({ message: 'No autorizado' });
+    }
+
+    const dryRun = String(req.query.dry || '0') === '1';
+    const setFechaFin = String(req.query.setFechaFin ?? '1') !== '0';
+
+    const out = await autoCerrarNuevoIngreso({ dryRun, setFechaFin });
+    return res.status(200).json(out);
+  } catch (error) {
+    console.error('❌ Error en cerrarNuevoIngresoMasivo:', error);
+    return res.status(500).json({ message: 'Error al cerrar nuevo ingreso' });
+  }
+};
+
 module.exports = {
   obtenerTrabajadores,
   agregarTrabajador,
@@ -488,4 +508,5 @@ module.exports = {
   actualizarEstadoSincronizacion,
   actualizarSedes,
   repararHistorial,
+  cerrarNuevoIngresoMasivo,
 };
