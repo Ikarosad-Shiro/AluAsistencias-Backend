@@ -87,22 +87,57 @@ router.post('/agregar-dia', async (req, res) => {
     }
 
     // Inserta como 12:00Z para evitar “corrimientos”
-    const nuevo = {
-      fecha: ymdToNoonUTC(fechaYmd),
-      tipo,
-      descripcion: descripcion || ''
-    };
+// Inserta como 12:00Z para evitar “corrimientos”
+const nuevo = {
+  fecha: ymdToNoonUTC(fechaYmd),
+  tipo,
+  descripcion: descripcion || ''
+};
 
-    // Si es media jornada y mandaron horas, déjalas (el modelo valida HH:mm)
-    if (tipo === 'media jornada') {
-      nuevo.horaInicio = horaInicio ?? null;
-      nuevo.horaFin = horaFin ?? null;
-    }
+// ✅ Validación explícita de media jornada antes de guardar
+if (tipo === 'media jornada') {
+  const formatoHora = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-    calendario.diasEspeciales.push(nuevo);
-    await calendario.save();
+  if (!formatoHora.test(horaInicio || '') || !formatoHora.test(horaFin || '')) {
+    return res.status(400).json({
+      message: 'Media jornada requiere horaInicio y horaFin en formato HH:mm'
+    });
+  }
 
-    res.status(201).json({ message: 'Día especial agregado con éxito', calendario });
+  nuevo.horaInicio = horaInicio;
+  nuevo.horaFin = horaFin;
+}
+
+/**
+ * ✅ Importante:
+ * Usamos $push para agregar el día sin revalidar todo el arreglo diasEspeciales.
+ * Esto evita que un registro viejo de media jornada sin horas bloquee el guardado.
+ */
+if (calendario._id) {
+  await Calendario.updateOne(
+    { _id: calendario._id },
+    { $push: { diasEspeciales: nuevo } }
+  );
+
+  const actualizado = await Calendario.findById(calendario._id);
+
+  return res.status(201).json({
+    message: 'Día especial agregado con éxito',
+    calendario: actualizado
+  });
+}
+
+// Si no existía calendario, creamos uno nuevo con el evento validado
+const creado = await Calendario.create({
+  año,
+  sedes: [sede],
+  diasEspeciales: [nuevo]
+});
+
+res.status(201).json({
+  message: 'Día especial agregado con éxito',
+  calendario: creado
+});
   } catch (error) {
     console.error('❌ Error en /agregar-dia:', error);
     res.status(500).json({ error: error.message });

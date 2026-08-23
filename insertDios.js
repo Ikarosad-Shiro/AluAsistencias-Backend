@@ -2,7 +2,8 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 // 🔗 Conexión a MongoDB Atlas
-const mongoURI = "mongodb+srv://desconexionparcial:LwryVX9pbCjdM8ao@cluster0.7rjoqap.mongodb.net/Registro_Alu?retryWrites=true&w=majority";
+const mongoURI = "mongodb+srv://dpalupratic_db_user:24AT1qpZgQAO2Hyt@dbprod.l0mixcb.mongodb.net/";
+/*const mongoURI = "mongodb+srv://desconexionparcial:LwryVX9pbCjdM8ao@cluster0.7rjoqap.mongodb.net/Registro_Alu?retryWrites=true&w=majority";*/
 mongoose.connect(mongoURI)
     .then(() => console.log("✅ Conectado a MongoDB Atlas correctamente."))
     .catch(err => console.error("❌ Error conectando a MongoDB Atlas", err));

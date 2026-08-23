@@ -10,14 +10,129 @@ const CalendarioTrabajador = require('../models/CalendarioTrabajador');
 
 const { obtenerReportePorTrabajador } = require('../controllers/asistenciaController');
 
+const {
+  ZONE,
+  dayMX,
+  parseDateTimeMX,
+  extraerMarcasDelDia,
+  interpretarDia
+} = require('../services/asistenciaRulesService');
+
 const router = express.Router();
 
 // 🧩 Helpers
-const isoDay = (d) => {
-  if (!d) return '';
-  const dt = typeof d === 'string' ? DateTime.fromISO(d) : DateTime.fromJSDate(new Date(d));
-  return dt.setZone('America/Mexico_City').toISODate();
+const isoDay = dayMX;
+
+const isTruthy = (v) =>
+  ['true', '1', 'on', 'yes', 'si', 'sí'].includes(String(v ?? '').toLowerCase());
+
+const fmtHoraMX = (iso) => {
+  const dt = parseDateTimeMX(iso);
+  return dt?.isValid ? dt.toFormat('hh:mm a') : '';
 };
+
+// Detecta si una asistencia pertenece a una fecha específica,
+// compatible con formato viejo y nuevo.
+function asistenciaPerteneceAlDia(a, fechaStr) {
+  if (!a) return false;
+  if (a.fecha === fechaStr) return true;
+
+  if ((a.detalle || []).some((d) => isoDay(d.fechaHora) === fechaStr)) return true;
+  if ((a.registros || []).some((r) => isoDay(r.fechaHora) === fechaStr)) return true;
+  if (a.primerRegistro?.fechaHora && isoDay(a.primerRegistro.fechaHora) === fechaStr) return true;
+  if (a.ultimoRegistro?.fechaHora && isoDay(a.ultimoRegistro.fechaHora) === fechaStr) return true;
+
+  return false;
+}
+
+// Filtro de rango compatible con formato viejo y nuevo.
+function filtroRangoAsistencias(inicio, fin, fechaInicio, fechaFin) {
+  return {
+    $or: [
+      { fecha: { $gte: inicio, $lte: fin } },
+
+      // Formato viejo
+      { 'detalle.fechaHora': { $gte: fechaInicio, $lte: fechaFin } },
+
+      // Formato nuevo
+      { 'registros.fechaHora': { $gte: fechaInicio, $lte: fechaFin } },
+      { 'primerRegistro.fechaHora': { $gte: fechaInicio, $lte: fechaFin } },
+      { 'ultimoRegistro.fechaHora': { $gte: fechaInicio, $lte: fechaFin } }
+    ]
+  };
+}
+
+// Convierte formato nuevo a detalle[] para no romper el front/PDF/Excel.
+function normalizarDetalleCompatible(a) {
+  const detalle = [];
+
+  // Formato viejo
+  if (Array.isArray(a.detalle) && a.detalle.length > 0) {
+    for (const d of a.detalle) {
+      detalle.push({
+        tipo: d.tipo,
+        fechaHora: d.fechaHora,
+        salida_automatica: !!d.salida_automatica,
+        sincronizado: !!d.sincronizado,
+        sede: d.sede != null ? d.sede : (a.sede ?? null)
+      });
+    }
+  }
+
+  // Formato nuevo: registros[]
+  if (Array.isArray(a.registros) && a.registros.length > 0) {
+    const registros = [...a.registros]
+      .filter((r) => r?.fechaHora)
+      .sort((x, y) => new Date(x.fechaHora) - new Date(y.fechaHora));
+
+    if (registros.length > 0) {
+      const primero = registros[0];
+
+      detalle.push({
+        tipo: 'Entrada',
+        fechaHora: primero.fechaHora,
+        salida_automatica: false,
+        sincronizado: !!primero.sincronizado,
+        sede: primero.sede != null ? primero.sede : (a.sede ?? null)
+      });
+
+      if (registros.length > 1) {
+        const ultimo = registros[registros.length - 1];
+
+        detalle.push({
+          tipo: 'Salida',
+          fechaHora: ultimo.fechaHora,
+          salida_automatica: false,
+          sincronizado: !!ultimo.sincronizado,
+          sede: ultimo.sede != null ? ultimo.sede : (a.sede ?? null)
+        });
+      }
+    }
+  }
+
+  // Formato nuevo: primerRegistro / ultimoRegistro
+  if (detalle.length === 0 && a.primerRegistro?.fechaHora) {
+    detalle.push({
+      tipo: 'Entrada',
+      fechaHora: a.primerRegistro.fechaHora,
+      salida_automatica: false,
+      sincronizado: false,
+      sede: a.primerRegistro.sede != null ? a.primerRegistro.sede : (a.sede ?? null)
+    });
+
+    if (Number(a.totalRegistros || 0) > 1 && a.ultimoRegistro?.fechaHora) {
+      detalle.push({
+        tipo: 'Salida',
+        fechaHora: a.ultimoRegistro.fechaHora,
+        salida_automatica: false,
+        sincronizado: false,
+        sede: a.ultimoRegistro.sede != null ? a.ultimoRegistro.sede : (a.sede ?? null)
+      });
+    }
+  }
+
+  return detalle;
+}
 
 // Emojis para tipos de evento (para PDFs/visuales)
 function obtenerEmojiPorTipo(tipo) {
@@ -29,32 +144,38 @@ function obtenerEmojiPorTipo(tipo) {
     case 'Incapacidad': return '🩺 Incapacidad';
     case 'Falta': return '❌ Falta Manual';
     case 'Media Jornada': return '🌓 Media Jornada';
+    case 'media jornada': return '🌓 Media Jornada';
     case 'Evento': return '🎤 Evento';
+    case 'evento': return '🎤 Evento';
     case 'Capacitación': return '📚 Capacitación';
+    case 'capacitación': return '📚 Capacitación';
     case 'Festivo': return '🎉 Festivo';
+    case 'festivo': return '🎉 Festivo';
     case 'Descanso': return '😴 Descanso';
+    case 'descanso': return '😴 Descanso';
     case 'Puente': return '🌉 Puente';
+    case 'puente': return '🌉 Puente';
     case 'Suspensión': return '🚫 Suspensión';
+    case 'suspensión': return '🚫 Suspensión';
     default: return tipo;
   }
 }
 
-// 📌 Registrar asistencia (desde servidor local)
+// 📌 Registrar asistencia (desde servidor local / legado)
 router.post('/registrar', async (req, res) => {
   try {
     const { trabajadorId, sede, tipo } = req.body;
+
     if (!['Entrada', 'Salida'].includes(tipo)) {
       return res.status(400).json({ message: 'Tipo de asistencia inválido.' });
     }
 
-    // Hora CDMX
-    const now = DateTime.now().setZone('America/Mexico_City');
-    const ahoraISO = now.toISO();       // 2025-05-13T10:00:00-06:00
-    const fechaStr = now.toISODate();   // 2025-05-13
+    const now = DateTime.now().setZone(ZONE);
+    const ahoraISO = now.toISO();
+    const fechaStr = now.toISODate();
 
-    // Evitar duplicados por tipo en el día
     const existe = await Asistencia.findOne({
-      trabajador: trabajadorId, // aquí se espera el id_checador (string)
+      trabajador: trabajadorId,
       fecha: fechaStr,
       'detalle.tipo': tipo
     });
@@ -64,10 +185,17 @@ router.post('/registrar', async (req, res) => {
     }
 
     const nuevaAsistencia = new Asistencia({
-      trabajador: trabajadorId, // id_checador
+      trabajador: trabajadorId,
       sede,
       fecha: fechaStr,
-      detalle: [{ tipo, fechaHora: ahoraISO }]
+      detalle: [
+        {
+          trabajador: trabajadorId,
+          tipo,
+          fechaHora: ahoraISO,
+          sede
+        }
+      ]
     });
 
     await nuevaAsistencia.save();
@@ -78,12 +206,10 @@ router.post('/registrar', async (req, res) => {
   }
 });
 
-// 📌 Reporte por trabajador (usa el controlador multi-sede)
+// 📌 Reporte por trabajador
 router.get('/reporte/trabajador/:trabajadorId', obtenerReportePorTrabajador);
 
 // 📌 Ruta unificada para PDF/Excel del TRABAJADOR
-//     (multi-sede para asistencias, calendario de sede principal)
-//     🔁 Si se pasa ?ignorarSede=true, NO se filtra por sede (mezcla todas).
 router.get('/unificado/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -93,75 +219,72 @@ router.get('/unificado/:id', async (req, res) => {
       return res.status(400).json({ message: "Parámetros 'inicio' y 'fin' requeridos." });
     }
 
-    // Rango de fechas para filtrar por detalle.fechaHora
-    const fechaInicio = new Date(inicio);
-    const fechaFin = new Date(fin);
-    fechaFin.setHours(23, 59, 59, 999);
+    const fechaInicio = DateTime.fromISO(inicio, { zone: ZONE }).startOf('day').toJSDate();
+    const fechaFin = DateTime.fromISO(fin, { zone: ZONE }).endOf('day').toJSDate();
 
-    // Trabajador
     const trabajador = await Trabajador.findById(id).lean();
+
     if (!trabajador) {
       return res.status(404).json({ message: 'Trabajador no encontrado.' });
     }
 
-    // Sede base y foráneas (compat con campo antiguo)
     const sedeBase = trabajador.sedePrincipal ?? trabajador.sede;
     const sedesForaneas = Array.isArray(trabajador.sedesForaneas) ? trabajador.sedesForaneas : [];
-    const sedesPermitidas = [...new Set([sedeBase, ...sedesForaneas])].filter((s) => s != null);
+    const sedesPermitidas = [...new Set([sedeBase, ...sedesForaneas])]
+      .filter((s) => s != null)
+      .map(Number);
 
-    // En Asistencia.trabajador guardas id_checador (string). Fallback al _id por históricos.
     const idChecador = (trabajador.id_checador ?? '').toString();
     const posiblesIds = [trabajador?._id?.toString()].filter(Boolean);
+
     if (idChecador) posiblesIds.push(idChecador);
 
-    // 🔧 Parse robusto de flags truthy (true/1/on/yes/si/sí)
-    const isTruthy = (v) => ['true', '1', 'on', 'yes', 'si', 'sí'].includes(String(v ?? '').toLowerCase());
     const ignoreAllSede = isTruthy(ignorarSede);
-    const onlyMainSede  = isTruthy(soloSedePrincipal);
+    const onlyMainSede = isTruthy(soloSedePrincipal);
 
-    // 🔧 Filtro de sede
     let filtroSede = {};
+
     if (ignoreAllSede) {
-      filtroSede = {}; // NO filtramos por sede (mezcla todas)
+      filtroSede = {};
     } else if (onlyMainSede) {
-      filtroSede = (sedeBase != null) ? { sede: sedeBase } : {};
-    } else if ((sedesPermitidas || []).length) {
+      filtroSede = sedeBase != null ? { sede: Number(sedeBase) } : {};
+    } else if (sedesPermitidas.length) {
       filtroSede = { sede: { $in: sedesPermitidas } };
     } else {
-      filtroSede = {}; // sin filtro si no hay foráneas registradas
+      filtroSede = {};
     }
 
-    // 🧵 Cargas en paralelo
     const [asistencias, calendarioTrabajador, calendarioSede] = await Promise.all([
       Asistencia.find({
         trabajador: { $in: posiblesIds },
         ...filtroSede,
-        $or: [
-          { fecha: { $gte: inicio, $lte: fin } },                         // por string YYYY-MM-DD
-          { 'detalle.fechaHora': { $gte: fechaInicio, $lte: fechaFin } }  // por Date en marcas
-        ]
+        ...filtroRangoAsistencias(inicio, fin, fechaInicio, fechaFin)
       }).lean(),
+
       CalendarioTrabajador.findOne({
         trabajador: trabajador._id,
-        $or: [{ anio: fechaInicio.getFullYear() }, { ['año']: fechaInicio.getFullYear() }]
+        $or: [
+          { anio: DateTime.fromISO(inicio, { zone: ZONE }).year },
+          { ['año']: DateTime.fromISO(inicio, { zone: ZONE }).year }
+        ]
       }).lean(),
-      // calendario SOLO de la sede principal (para eventos de sede)
+
       Calendario.findOne({
         sedes: sedeBase,
-        $or: [{ anio: fechaInicio.getFullYear() }, { ['año']: fechaInicio.getFullYear() }]
+        $or: [
+          { anio: DateTime.fromISO(inicio, { zone: ZONE }).year },
+          { ['año']: DateTime.fromISO(inicio, { zone: ZONE }).year }
+        ]
       }).lean()
     ]);
 
-    // 📦 Normaliza detalle y asegura que cada marca traiga "sede"
     const asistenciasFormateadas = (asistencias || []).map((a) => ({
       ...a,
-      detalle: (a.detalle || []).map((d) => ({
-        tipo: d.tipo,
-        fechaHora: new Date(d.fechaHora).toISOString(),  // ISO consistente
-        salida_automatica: !!d.salida_automatica,
-        sincronizado: !!d.sincronizado,
-        sede: (d.sede != null) ? d.sede : (a.sede ?? null)
-      }))
+      detalle: normalizarDetalleCompatible(a),
+      primerRegistro: a.primerRegistro || null,
+      ultimoRegistro: a.ultimoRegistro || null,
+      totalRegistros: a.totalRegistros || 0,
+      registros: a.registros || []
     }));
 
     return res.json({
@@ -175,238 +298,600 @@ router.get('/unificado/:id', async (req, res) => {
   }
 });
 
-// 🆕 Unificado por SEDE (con horas de "Otra Sede" y sin arrastrar día por solo-salida)
+// 🆕 Unificado por SEDE
+// 🆕 Unificado por SEDE
 router.get('/unificado-sede/:sedeId', async (req, res) => {
   try {
     const { sedeId } = req.params;
     const { inicio, fin } = req.query;
-    const { DateTime } = require('luxon');
 
     if (!inicio || !fin) {
-      return res.status(400).json({ message: "Parámetros 'inicio' y 'fin' requeridos." });
+      return res.status(400).json({
+        message: "Parámetros 'inicio' y 'fin' requeridos."
+      });
     }
 
-    const fechaInicio = DateTime.fromISO(inicio).startOf('day');
-    const fechaFin    = DateTime.fromISO(fin).endOf('day');
+    const sedeNum = Number(sedeId);
 
-    const Trabajador = require('../models/Trabajador');
-    const Asistencia = require('../models/Asistencia');
-    const Calendario = require('../models/Calendario');
-    const CalendarioTrabajador = require('../models/CalendarioTrabajador');
+    const fechaInicio = DateTime
+      .fromISO(inicio, { zone: ZONE })
+      .startOf('day');
 
-    const ZONE = 'America/Mexico_City';
-    const isoDay = (d) => {
-      if (!d) return '';
-      const dt = typeof d === 'string' ? DateTime.fromISO(d) : DateTime.fromJSDate(new Date(d));
-      return dt.setZone(ZONE).toISODate();
-    };
-    const fmtHoraMX = (iso) =>
-      DateTime.fromJSDate(new Date(iso)).setZone(ZONE).toFormat('hh:mm a');
+    const fechaFin = DateTime
+      .fromISO(fin, { zone: ZONE })
+      .endOf('day');
 
-    const trabajadores = await Trabajador.find({ sede: Number(sedeId) }).lean();
+    const fechaInicioJS = fechaInicio.toJSDate();
+    const fechaFinJS = fechaFin.toJSDate();
+
+
+    // =====================================================
+    // SEDE DEL REPORTE
+    // =====================================================
+
+    const sedeDoc = await Sede.findOne({
+      id: sedeNum
+    }).lean();
+
+
+    // =====================================================
+    // TRABAJADORES DE LA SEDE
+    // =====================================================
+
+    const trabajadores = await Trabajador.find({
+      $or: [
+        { sede: sedeNum },
+        { sedePrincipal: sedeNum }
+      ]
+    }).lean();
+
+
     if (!trabajadores.length) {
-      return res.status(404).json({ message: 'No hay trabajadores en esta sede.' });
+      return res.status(404).json({
+        message: 'No hay trabajadores en esta sede.'
+      });
     }
+
+
+    // =====================================================
+    // CALENDARIO DE LA SEDE
+    // =====================================================
 
     const calendarioSede = await Calendario.findOne({
-      sedes: Number(sedeId),
-      $or: [{ anio: fechaInicio.year }, { ['año']: fechaInicio.year }]
+      sedes: sedeNum,
+      $or: [
+        { anio: fechaInicio.year },
+        { ['año']: fechaInicio.year }
+      ]
     }).lean();
+
 
     const resultados = [];
 
+
+    // =====================================================
+    // RECORRER TRABAJADORES
+    // =====================================================
+
     for (const trabajador of trabajadores) {
-      const idChecador = (trabajador.id_checador ?? '').toString();
-      const posiblesIds = [trabajador?._id?.toString()].filter(Boolean);
-      if (idChecador) posiblesIds.push(idChecador);
 
-      // A) Solo sede actual (para celdas normales)
-      const asistenciasSede = await Asistencia.find({
-        trabajador: { $in: posiblesIds },
-        sede: Number(sedeId),
-        $or: [
-          { fecha: { $gte: inicio, $lte: fin } },
-          { 'detalle.fechaHora': { $gte: fechaInicio.toJSDate(), $lte: fechaFin.toJSDate() } }
-        ]
-      }).lean();
+      const idChecador =
+        (trabajador.id_checador ?? '').toString();
 
-      // B) Todas las sedes (para detectar "Otra Sede" y extraer horas de ese día)
-      const asistenciasAll = await Asistencia.find({
-        trabajador: { $in: posiblesIds },
-        $or: [
-          { fecha: { $gte: inicio, $lte: fin } },
-          { 'detalle.fechaHora': { $gte: fechaInicio.toJSDate(), $lte: fechaFin.toJSDate() } }
-        ]
-      }).lean();
+      const posiblesIds = [
+        trabajador?._id?.toString()
+      ].filter(Boolean);
 
-      // Índice: fecha -> { entradaISO?, salidaISO? } SOLO de sedes != sedeId
-      const horasOtraSede = new Map(); // Map<string, {entradaISO?:string, salidaISO?:string}>
-      (asistenciasAll || []).forEach((a) => {
-        const sedeDoc = a?.sede;
-        (a?.detalle || []).forEach((d) => {
-          const f = isoDay(d?.fechaHora);
-          const sedeReg = (d?.sede != null) ? d.sede : sedeDoc;
-          if (!f || String(sedeReg) === String(sedeId)) return; // solo otras sedes
 
-          const cur = horasOtraSede.get(f) || {};
-          if (d?.tipo === 'Entrada') {
-            if (!cur.entradaISO || new Date(d.fechaHora) < new Date(cur.entradaISO)) cur.entradaISO = d.fechaHora;
-          }
-          if (String(d?.tipo || '').startsWith('Salida')) {
-            if (!cur.salidaISO || new Date(d.fechaHora) > new Date(cur.salidaISO)) cur.salidaISO = d.fechaHora;
-          }
-          horasOtraSede.set(f, cur);
-        });
-      });
-
-      const calendarioTrabajador = await CalendarioTrabajador.findOne({
-        trabajador: trabajador._id,
-        $or: [{ anio: fechaInicio.year }, { ['año']: fechaInicio.year }]
-      }).lean();
-
-      const datosPorDia = {};
-      let cursor = fechaInicio;
-
-      while (cursor <= fechaFin) {
-        const fechaStr = cursor.toISODate();
-
-        const entradas = asistenciasSede
-          .flatMap((a) => a.detalle || [])
-          .filter((d) => d.tipo === 'Entrada' && isoDay(d.fechaHora) === fechaStr);
-        const salidas = asistenciasSede
-          .flatMap((a) => a.detalle || [])
-          .filter((d) => d.tipo === 'Salida' && isoDay(d.fechaHora) === fechaStr);
-
-        const eventoTrab = calendarioTrabajador?.diasEspeciales?.find((e) => isoDay(e.fecha) === fechaStr);
-        const eventoSed  = calendarioSede?.diasEspeciales?.find((e) => isoDay(e.fecha) === fechaStr);
-
-        let entrada = entradas.length ? fmtHoraMX(entradas[0].fechaHora) : '';
-        let salida  = salidas.length ? fmtHoraMX(salidas[salidas.length - 1].fechaHora) : '';
-        let estado  = '';
-
-        // Jerarquía base
-        if (eventoTrab) {
-          const tipoEvt = (eventoTrab.tipo || '').toLowerCase().trim();
-          if (tipoEvt === 'asistencia' && eventoTrab.horaEntrada && eventoTrab.horaSalida) {
-            estado = 'Asistencia Manual';
-            entrada = eventoTrab.horaEntrada;
-            salida  = eventoTrab.horaSalida;
-          } else {
-            estado = eventoTrab.tipo;
-            entrada = estado;
-            salida  = '';
-          }
-        } else if (entrada && salida) {
-          estado = 'Asistencia Completa';
-        } else if (entrada && !salida) {
-          estado = 'Salida Automática';
-          salida = '⏳';
-        } else if (eventoSed) {
-          estado = eventoSed.tipo;
-          entrada = estado;
-          salida  = '';
-        } else {
-          estado = 'Falta';
-          entrada = '—';
-          salida  = '—';
-        }
-
-        // 🔵 "Otra Sede": solo si NO hubo nada en sede actual y SÍ hay ENTRADA en otra sede ese día
-        if (!entradas.length && !salidas.length && !eventoTrab && !eventoSed) {
-          const otras = horasOtraSede.get(fechaStr);
-          if (otras?.entradaISO) {
-            estado  = 'Otra Sede';
-            entrada = fmtHoraMX(otras.entradaISO);
-            salida  = otras.salidaISO ? fmtHoraMX(otras.salidaISO) : '—';
-          }
-        }
-
-        datosPorDia[fechaStr] = { entrada, salida, estado };
-        cursor = cursor.plus({ days: 1 });
+      if (idChecador) {
+        posiblesIds.push(idChecador);
       }
 
+
+      // ===================================================
+      // A) REGISTROS ÚNICAMENTE DE LA SEDE DEL REPORTE
+      //
+      // Estos NO serán usados para calcular Entrada/Salida.
+      //
+      // Sirven para saber si el trabajador tuvo
+      // físicamente alguna marca en esta sede.
+      // ===================================================
+
+      const asistenciasSede = await Asistencia.find({
+        trabajador: {
+          $in: posiblesIds
+        },
+
+        sede: sedeNum,
+
+        ...filtroRangoAsistencias(
+          inicio,
+          fin,
+          fechaInicioJS,
+          fechaFinJS
+        )
+      }).lean();
+
+
+      // ===================================================
+      // B) REGISTROS DE TODAS LAS SEDES
+      //
+      // Esta colección SÍ se utilizará para determinar:
+      //
+      // - Primera marca global
+      // - Última marca global
+      // - Entrada
+      // - Salida
+      // - Estado
+      //
+      // Esto permite:
+      //
+      // 08:03 Los Reyes
+      // 18:15 Texcoco
+      //
+      // = Asistencia Completa
+      // ===================================================
+
+      const asistenciasAll = await Asistencia.find({
+        trabajador: {
+          $in: posiblesIds
+        },
+
+        ...filtroRangoAsistencias(
+          inicio,
+          fin,
+          fechaInicioJS,
+          fechaFinJS
+        )
+      }).lean();
+
+
+      // ===================================================
+      // CALENDARIO DEL TRABAJADOR
+      // ===================================================
+
+      const calendarioTrabajador =
+        await CalendarioTrabajador.findOne({
+
+          trabajador:
+            trabajador._id,
+
+          $or: [
+            { anio: fechaInicio.year },
+            { ['año']: fechaInicio.year }
+          ]
+
+        }).lean();
+
+
+      const datosPorDia = {};
+
+      let cursor =
+        fechaInicio.startOf('day');
+
+      const finCursor =
+        fechaFin.startOf('day');
+
+
+      // ===================================================
+      // RECORRER CADA DÍA
+      // ===================================================
+
+      while (cursor <= finCursor) {
+
+        const fechaStr =
+          cursor.toISODate();
+
+
+        // ===============================================
+        // REGISTROS DE LA SEDE ACTUAL
+        // ===============================================
+
+        const asistenciasSedeDia =
+          (asistenciasSede || []).filter(
+            (a) =>
+              asistenciaPerteneceAlDia(
+                a,
+                fechaStr
+              )
+          );
+
+
+        // ===============================================
+        // TODOS LOS REGISTROS DEL TRABAJADOR
+        // EN TODAS LAS SEDES
+        // ===============================================
+
+        const asistenciasAllDia =
+          (asistenciasAll || []).filter(
+            (a) =>
+              asistenciaPerteneceAlDia(
+                a,
+                fechaStr
+              )
+          );
+
+
+        // ===============================================
+        // EVENTO DEL TRABAJADOR
+        // ===============================================
+
+        const eventoTrab =
+          calendarioTrabajador
+            ?.diasEspeciales
+            ?.find(
+              (e) =>
+                isoDay(e.fecha) === fechaStr
+            );
+
+
+        // ===============================================
+        // EVENTO DE LA SEDE
+        // ===============================================
+
+        const eventoSed =
+          calendarioSede
+            ?.diasEspeciales
+            ?.find(
+              (e) =>
+                isoDay(e.fecha) === fechaStr
+            );
+
+
+        // ===============================================
+        // MARCAS DE LA SEDE DEL REPORTE
+        //
+        // Solo sirven para determinar si estuvo
+        // físicamente en esta sede.
+        // ===============================================
+
+        const marcasSede =
+          extraerMarcasDelDia(
+            asistenciasSedeDia,
+            fechaStr
+          );
+
+
+        // ===============================================
+        // MARCAS GLOBALES
+        //
+        // Aquí juntamos:
+        //
+        // Los Reyes
+        // Texcoco
+        // Chalco
+        // etc.
+        // ===============================================
+
+        const marcasGlobales =
+          extraerMarcasDelDia(
+            asistenciasAllDia,
+            fechaStr
+          );
+
+
+        // ===============================================
+        // INTERPRETAR EL DÍA
+        //
+        // IMPORTANTE:
+        //
+        // Ahora usamos marcasGlobales.
+        // ===============================================
+
+        const interpretacion =
+          interpretarDia({
+
+            fechaStr,
+
+            sedeDoc,
+
+            marcas:
+              marcasGlobales,
+
+            eventoTrabajador:
+              eventoTrab,
+
+            eventoSede:
+              eventoSed
+          });
+
+
+        let entrada =
+          interpretacion.entrada || '';
+
+        let salida =
+          interpretacion.salida || '';
+
+        let estado =
+          interpretacion.estado || '';
+
+
+        // ===============================================
+        // EVENTOS
+        //
+        // Conservamos el comportamiento anterior.
+        // ===============================================
+
+        if (
+          (
+            interpretacion.fuenteEstado ===
+              'eventoTrabajador' ||
+
+            interpretacion.fuenteEstado ===
+              'eventoSede'
+          ) &&
+
+          !entrada &&
+          !salida
+        ) {
+
+          entrada = estado;
+
+          salida = '';
+        }
+
+
+        // ===============================================
+        // SALIDA AUTOMÁTICA
+        // ===============================================
+
+        if (
+          estado === 'Salida Automática' &&
+          entrada &&
+          !salida
+        ) {
+
+          salida = '⏳';
+        }
+
+
+        // ===============================================
+        // FALTA
+        // ===============================================
+
+        if (estado === 'Falta') {
+
+          entrada = '—';
+
+          salida = '—';
+        }
+
+
+        // ===============================================
+        // DESCANSO
+        // ===============================================
+
+        if (estado === 'Descanso') {
+
+          entrada = 'Descanso';
+
+          salida = '';
+        }
+
+
+        // ===============================================
+        // DETECTAR PRESENCIA EN SEDE ACTUAL
+        // ===============================================
+
+        const hayMarcaEnSede =
+          !!(
+            marcasSede.entradaReg ||
+            marcasSede.salidaReg
+          );
+
+
+        const hayMarcaGlobal =
+          !!(
+            marcasGlobales.entradaReg ||
+            marcasGlobales.salidaReg
+          );
+
+
+        // ===============================================
+        // OTRA SEDE
+        //
+        // Solo usamos "Otra Sede" cuando:
+        //
+        // 1. NO marcó en la sede del reporte.
+        // 2. SÍ marcó en alguna otra sede.
+        // 3. No tiene un evento especial.
+        //
+        // IMPORTANTE:
+        //
+        // Si:
+        //
+        // Los Reyes 08:03
+        // Texcoco   18:15
+        //
+        // hayMarcaEnSede = true
+        //
+        // por lo tanto NO será "Otra Sede".
+        //
+        // Será Asistencia Completa.
+        // ===============================================
+
+        if (
+          !hayMarcaEnSede &&
+          hayMarcaGlobal &&
+          !eventoTrab &&
+          !eventoSed
+        ) {
+
+          estado =
+            'Otra Sede';
+
+
+          entrada =
+            marcasGlobales
+              .entradaReg
+              ?.fechaHora
+                ? fmtHoraMX(
+                    marcasGlobales
+                      .entradaReg
+                      .fechaHora
+                  )
+                : '—';
+
+
+          salida =
+            marcasGlobales
+              .salidaReg
+              ?.fechaHora
+                ? fmtHoraMX(
+                    marcasGlobales
+                      .salidaReg
+                      .fechaHora
+                  )
+                : '—';
+        }
+
+
+        // ===============================================
+        // RESULTADO DEL DÍA
+        // ===============================================
+
+        datosPorDia[fechaStr] = {
+
+          entrada,
+
+          salida,
+
+          estado,
+
+          // Dejamos estos datos disponibles
+          // por si después queremos mostrarlos
+          // en PDF/Excel o tooltips.
+
+          sedeEntrada:
+            interpretacion.sedeEntrada ??
+            marcasGlobales.sedeEntrada ??
+            null,
+
+          sedeSalida:
+            interpretacion.sedeSalida ??
+            marcasGlobales.sedeSalida ??
+            null
+        };
+
+
+        cursor =
+          cursor.plus({
+            days: 1
+          });
+      }
+
+
+      // ===================================================
+      // RESULTADO DEL TRABAJADOR
+      // ===================================================
+
       resultados.push({
-        nombre: [trabajador.nombre, trabajador.apellido, trabajador.segundoApellido].filter(Boolean).join(' '),
-        id: trabajador._id,
+
+        nombre: [
+          trabajador.nombre,
+          trabajador.apellido,
+          trabajador.segundoApellido
+        ]
+          .filter(Boolean)
+          .join(' '),
+
+        id:
+          trabajador._id,
+
         datosPorDia
       });
     }
 
+
+    // =====================================================
+    // RESPUESTA
+    // =====================================================
+
     res.json({
-      sede: Number(sedeId),
-      rango: { inicio, fin },
-      trabajadores: resultados
+
+      sede:
+        sedeNum,
+
+      rango: {
+        inicio,
+        fin
+      },
+
+      trabajadores:
+        resultados
     });
+
+
   } catch (error) {
-    console.error('❌ Error en /unificado-sede:', error);
-    res.status(500).json({ message: 'Error al obtener datos por sede.', error });
+
+    console.error(
+      '❌ Error en /unificado-sede:',
+      error
+    );
+
+
+    res.status(500).json({
+      message:
+        'Error al obtener datos por sede.',
+
+      error
+    });
   }
 });
-
-// 📌 Asistencias de HOY (panel)
+// 📌 Asistencias de HOY
 router.get('/hoy', async (req, res) => {
   try {
-    const hoy = DateTime.now().setZone('America/Mexico_City').toISODate();
+    const hoy = DateTime.now().setZone(ZONE).toISODate();
 
-    // Nota: si tu colección no guarda `estado` calculado, podrías quitar el filtro de estado.
+    // Ya no filtramos por estado, porque el formato nuevo puede no traer estado calculado.
     const asistencias = await Asistencia.find({
-      fecha: hoy,
-      estado: { $in: ['Asistencia Completa', 'Pendiente', 'Salida Automática'] }
+      fecha: hoy
     }).lean();
 
-    // Al menos tenga una marca de inicio
-    const asistenciasFiltradas = (asistencias || []).filter((a) =>
-      (a.detalle || []).some((d) => ['Entrada', 'Asistencia', 'Entrada Manual'].includes(d.tipo))
-    );
+    const asistenciasFiltradas = (asistencias || []).filter((a) => {
+      const marcas = extraerMarcasDelDia([a], hoy);
+      return !!marcas.entradaReg;
+    });
 
     const resultado = await Promise.all(
       asistenciasFiltradas.map(async (a) => {
+        const marcas = extraerMarcasDelDia([a], hoy);
+
         const trabajadorDoc = await Trabajador.findOne({
-          id_checador: a.trabajador,
-          sede: a.sede
+          id_checador: Number(a.trabajador),
+          $or: [
+            { sede: a.sede },
+            { sedePrincipal: a.sede }
+          ]
         }).lean();
 
         const sedeDoc = await Sede.findOne({ id: a.sede }).lean();
 
-        const nombreCompleto = [trabajadorDoc?.nombre, trabajadorDoc?.apellido, trabajadorDoc?.segundoApellido]
-          .filter(Boolean)
-          .join(' ');
-
-        const entrada = (a.detalle || []).find((d) => ['Entrada', 'Asistencia', 'Entrada Manual'].includes(d.tipo));
-
-        let horaEntrada = null;
-        if (entrada?.fechaHora) {
-          try {
-            horaEntrada = DateTime.fromJSDate(new Date(entrada.fechaHora))
-              .setZone('America/Mexico_City')
-              .toFormat('hh:mm a');
-          } catch (e) {
-            console.error('❌ Error al formatear hora de entrada:', e.message);
-          }
-        }
+        const nombreCompleto = [
+          trabajadorDoc?.nombre,
+          trabajadorDoc?.apellido,
+          trabajadorDoc?.segundoApellido
+        ].filter(Boolean).join(' ');
 
         return {
           _id: trabajadorDoc?._id,
           nombre: nombreCompleto || 'Desconocido',
-          hora: horaEntrada,
+          hora: marcas.entradaReg?.fechaHora ? fmtHoraMX(marcas.entradaReg.fechaHora) : null,
           sede: sedeDoc?.nombre || 'Sin sede'
         };
       })
     );
 
-    // Orden por hora subida
     resultado.sort((a, b) => {
       if (!a.hora) return 1;
       if (!b.hora) return -1;
-      const [hA, mAraw] = a.hora.split(':');
-      const [hB, mBraw] = b.hora.split(':');
-      const mA = parseInt(mAraw, 10);
-      const mB = parseInt(mBraw, 10);
-      const ampmA = a.hora.toLowerCase().includes('pm');
-      const ampmB = b.hora.toLowerCase().includes('pm');
-      const HH_A = (parseInt(hA, 10) % 12) + (ampmA ? 12 : 0);
-      const HH_B = (parseInt(hB, 10) % 12) + (ampmB ? 12 : 0);
-      return HH_A * 60 + mA - (HH_B * 60 + mB);
+
+      const horaA = DateTime.fromFormat(a.hora, 'hh:mm a');
+      const horaB = DateTime.fromFormat(b.hora, 'hh:mm a');
+
+      if (!horaA.isValid || !horaB.isValid) return 0;
+
+      return horaA.toMillis() - horaB.toMillis();
     });
 
     res.json(resultado);

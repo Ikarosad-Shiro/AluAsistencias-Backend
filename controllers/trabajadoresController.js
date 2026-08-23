@@ -340,15 +340,34 @@ const obtenerTrabajadorPorId = async (req, res) => {
   }
 };
 
+
+//Cambio de codigo
 // 🔄 Actualizar un trabajador (sede principal/foráneas/estado/historial/sincronizado/etc.)
 // ✅ Soporta toggle de nuevoIngreso/fechaAlta
 const actualizarTrabajador = async (req, res) => {
   try {
     const { id } = req.params;
-    const body = req.body || {};
+    const body = { ...(req.body || {}) };
 
     const t = await Trabajador.findById(id);
-    if (!t) return res.status(404).json({ message: 'Trabajador no encontrado' });
+    if (!t) {
+      return res.status(404).json({ message: 'Trabajador no encontrado' });
+    }
+
+    // ✅ Protección:
+    // Si el frontend manda nombre vacío, no dejamos que sobreescriba el nombre real.
+    if (
+      body.nombre === '' ||
+      body.nombre === null ||
+      body.nombre === undefined ||
+      (typeof body.nombre === 'string' && body.nombre.trim() === '')
+    ) {
+      delete body.nombre;
+    }
+
+    // ✅ Evitar modificar campos internos
+    delete body._id;
+    delete body.__v;
 
     // ===== ESTADO =====
     if (body.estado === 'inactivo') {
@@ -362,12 +381,14 @@ const actualizarTrabajador = async (req, res) => {
       if (abierto) abierto.fechaFin = new Date();
     } else if (body.estado === 'activo') {
       t.estado = 'activo';
+      t.sincronizado = false;
     }
 
     // ===== CAMBIO DE SEDE PRINCIPAL =====
-    if (Object.prototype.hasOwnProperty.call(body, 'sede') ||
-        Object.prototype.hasOwnProperty.call(body, 'sedePrincipal')) {
-
+    if (
+      Object.prototype.hasOwnProperty.call(body, 'sede') ||
+      Object.prototype.hasOwnProperty.call(body, 'sedePrincipal')
+    ) {
       const nuevaPrincipal = toNum(body.sedePrincipal ?? body.sede);
 
       if (nuevaPrincipal !== null && nuevaPrincipal !== t.sedePrincipal) {
@@ -399,11 +420,28 @@ const actualizarTrabajador = async (req, res) => {
 
     // ===== CAMPOS SIMPLES =====
     const simples = [
-      'nombre', 'correo', 'telefono', 'telefonoEmergencia',
-      'direccion', 'puesto', 'sincronizado'
+      'nombre',
+      'correo',
+      'telefono',
+      'telefonoEmergencia',
+      'direccion',
+      'puesto',
+      'sincronizado'
     ];
+
     simples.forEach(k => {
       if (Object.prototype.hasOwnProperty.call(body, k)) {
+        // ✅ Nombre solo se actualiza si viene con texto real.
+        if (k === 'nombre') {
+          const nombreLimpio = String(body.nombre || '').trim();
+
+          if (nombreLimpio) {
+            t.nombre = nombreLimpio;
+          }
+
+          return;
+        }
+
         t[k] = body[k];
       }
     });
@@ -412,6 +450,7 @@ const actualizarTrabajador = async (req, res) => {
     if (Object.prototype.hasOwnProperty.call(body, 'nuevoIngreso')) {
       const ni = !!body.nuevoIngreso;
       t.nuevoIngreso = ni;
+
       if (ni) {
         // Si mandas fecha, la usamos; si no, ponemos “hoy”
         t.fechaAlta = parseFecha(body.fechaAlta) || new Date(new Date().toDateString());
@@ -419,7 +458,7 @@ const actualizarTrabajador = async (req, res) => {
         t.fechaAlta = null;
       }
     } else if (Object.prototype.hasOwnProperty.call(body, 'fechaAlta')) {
-      // Si solo mandas fechaAlta sin tocar nuevoIngreso, la aplicamos (si es válida)
+      // Si solo mandas fechaAlta sin tocar nuevoIngreso, la aplicamos si es válida
       const f = parseFecha(body.fechaAlta);
       if (f) t.fechaAlta = f;
     }
@@ -437,7 +476,6 @@ const actualizarTrabajador = async (req, res) => {
     res.status(500).json({ message: 'Error al actualizar trabajador' });
   }
 };
-
 // 🔥 Obtener asistencias de un trabajador específico usando id_checador + sede actual
 const obtenerAsistencias = async (req, res) => {
   try {
