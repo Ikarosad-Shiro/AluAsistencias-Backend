@@ -848,21 +848,36 @@ router.get('/hoy', async (req, res) => {
       fecha: hoy
     }).lean();
 
-    const asistenciasFiltradas = (asistencias || []).filter((a) => {
+   /* const asistenciasFiltradas = (asistencias || []).filter((a) => {
       const marcas = extraerMarcasDelDia([a], hoy);
       return !!marcas.entradaReg;
-    });
+    });*/
+    const asistenciasFiltradas = (asistencias|| []).filter((a) => {
+      const idChecador = Number(a.trabajador)
+      // 🔒 Ignorar administradores del checador
+      // IDs menores a 100 están reservados para administradores
+      if(!Number.isInteger(idChecador)|| idChecador < 100){
+        return false;
+      } 
+      const marcas = extraerMarcasDelDia([a],hoy);
+      return !!marcas.entradaReg;
+      })
 
     const resultado = await Promise.all(
       asistenciasFiltradas.map(async (a) => {
         const marcas = extraerMarcasDelDia([a], hoy);
 
-        const trabajadorDoc = await Trabajador.findOne({
+       /* const trabajadorDoc = await Trabajador.findOne({
           id_checador: Number(a.trabajador),
           $or: [
             { sede: a.sede },
             { sedePrincipal: a.sede }
           ]
+        }).lean();*/
+          // ✅ Identificar al trabajador únicamente por su ID de checador.
+         // Puede haber marcado en su sede principal o en una sede foránea.
+        const trabajadorDoc = await Trabajador.findOne({
+          id_checador:Number(a.trabajador)
         }).lean();
 
         const sedeDoc = await Sede.findOne({ id: a.sede }).lean();
